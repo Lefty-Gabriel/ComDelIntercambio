@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+build/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+
+# Supabase (local runtime artifacts)
+supabase/.branches
+supabase/.temp

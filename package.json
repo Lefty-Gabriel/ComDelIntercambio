@@ -1,0 +1,28 @@
+{
+  "name": "traction",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plataforma educativa modular (cursos por modulos, video y clases en vivo)",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run start:dev --workspace api",
+    "dev:web": "npm run dev --workspace web",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "npm run format --workspaces --if-present",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:status": "supabase status"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "supabase": "^2.30.4"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
