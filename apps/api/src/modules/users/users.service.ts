@@ -1,6 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { SupabaseService } from '../../common/supabase/supabase.service.js';
 import type { AuthenticatedUser, Role } from '../auth/auth.types.js';
+import { ROLES } from '../auth/auth.types.js';
 
 interface ProfileRow {
   id: string;
@@ -13,7 +18,9 @@ interface ProfileRow {
 export class UsersService {
   constructor(private readonly supabase: SupabaseService) {}
 
-  async list(): Promise<AuthenticatedUser[]> {
+  async list(user: AuthenticatedUser): Promise<AuthenticatedUser[]> {
+    if (user.role !== 'admin')
+      throw new ForbiddenException('Administrator access required');
     const { data, error } = await this.supabase.client
       .schema('iam')
       .from('profiles')
@@ -24,7 +31,14 @@ export class UsersService {
     return (data as ProfileRow[]).map((row) => this.mapProfile(row));
   }
 
-  async updateRole(id: string, role: Role): Promise<AuthenticatedUser> {
+  async updateRole(
+    id: string,
+    role: Role,
+    user: AuthenticatedUser,
+  ): Promise<AuthenticatedUser> {
+    if (user.role !== 'admin')
+      throw new ForbiddenException('Administrator access required');
+    if (!ROLES.includes(role)) throw new BadRequestException('Invalid role');
     const { data, error } = await this.supabase.client
       .schema('iam')
       .from('profiles')

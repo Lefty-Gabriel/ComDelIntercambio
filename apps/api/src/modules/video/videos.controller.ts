@@ -22,7 +22,7 @@ export class VideosController {
   constructor(private readonly videos: VideosService) {}
 
   @Post()
-  @Roles('admin', 'docente')
+  @Roles('admin', 'mentor')
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateVideoDto) {
     return this.videos.create(user, dto);
   }
@@ -43,7 +43,7 @@ export class VideosController {
   }
 
   @Post(':id/complete')
-  @Roles('admin', 'docente')
+  @Roles('admin', 'mentor')
   complete(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -53,7 +53,7 @@ export class VideosController {
   }
 
   @Delete(':id')
-  @Roles('admin', 'docente')
+  @Roles('admin', 'mentor')
   remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.videos.remove(user, id);
   }

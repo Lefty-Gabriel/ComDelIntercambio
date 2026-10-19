@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -30,26 +31,33 @@ export class CoursesService {
 
   async create(
     input: { title: string; description?: string },
-    createdBy: string,
+    user: AuthenticatedUser,
   ): Promise<Course> {
+    if (user.role !== 'admin')
+      throw new ForbiddenException('Administrator access required');
     const { data, error } = await this.supabase.client
       .schema('courses')
       .from('courses')
       .insert({
         title: input.title,
         description: input.description ?? '',
-        created_by: createdBy,
+        created_by: user.id,
       })
       .select('*')
       .single();
 
     if (error || !data) {
-      throw new BadRequestException(error?.message ?? 'Could not create course');
+      throw new BadRequestException(
+        error?.message ?? 'Could not create course',
+      );
     }
     return this.mapCourse(data as CourseRow);
   }
 
   async listForUser(user: AuthenticatedUser): Promise<Course[]> {
+    if (!['admin', 'mentor', 'estudiante'].includes(user.role)) {
+      throw new ForbiddenException('Academic access required');
+    }
     if (user.role === 'admin') {
       const { data, error } = await this.supabase.client
         .schema('courses')
@@ -60,7 +68,7 @@ export class CoursesService {
       return (data as CourseRow[]).map((row) => this.mapCourse(row));
     }
 
-    if (user.role === 'docente') {
+    if (user.role === 'mentor') {
       const { data, error } = await this.supabase.client
         .schema('courses')
         .from('courses')
@@ -85,24 +93,39 @@ export class CoursesService {
     );
   }
 
-  async enroll(courseId: string, studentId: string, grantedBy: string) {
+  async enroll(courseId: string, studentId: string, user: AuthenticatedUser) {
+    if (user.role !== 'admin')
+      throw new ForbiddenException('Administrator access required');
     const { data, error } = await this.supabase.client
       .schema('courses')
       .from('enrollments')
       .upsert(
-        { course_id: courseId, student_id: studentId, granted_by: grantedBy },
+        { course_id: courseId, student_id: studentId, granted_by: user.id },
         { onConflict: 'course_id,student_id' },
       )
       .select('id, course_id, student_id, status, created_at')
       .single();
 
     if (error || !data) {
-      throw new BadRequestException(error?.message ?? 'Could not enroll student');
+      throw new BadRequestException(
+        error?.message ?? 'Could not enroll student',
+      );
     }
     return data;
   }
 
-  async listEnrollments(courseId: string) {
+  async listEnrollments(courseId: string, user: AuthenticatedUser) {
+    if (
+      user.role !== 'admin' &&
+      !(
+        user.role === 'mentor' &&
+        (await this.getCourseDocenteId(courseId)) === user.id
+      )
+    ) {
+      throw new ForbiddenException(
+        'You cannot view enrollments for this course',
+      );
+    }
     const { data, error } = await this.supabase.client
       .schema('courses')
       .from('enrollments')
@@ -125,7 +148,13 @@ export class CoursesService {
     return (data as { docente_id: string | null } | null)?.docente_id ?? null;
   }
 
-  async assignDocente(courseId: string, docenteId: string): Promise<Course> {
+  async assignDocente(
+    courseId: string,
+    docenteId: string,
+    user: AuthenticatedUser,
+  ): Promise<Course> {
+    if (user.role !== 'admin')
+      throw new ForbiddenException('Administrator access required');
     const { data: profile, error: profileError } = await this.supabase.client
       .schema('iam')
       .from('profiles')
@@ -135,9 +164,9 @@ export class CoursesService {
 
     if (profileError) throw new BadRequestException(profileError.message);
     if (!profile) throw new NotFoundException('Docente not found');
-    if ((profile as { role: string }).role !== 'docente') {
+    if ((profile as { role: string }).role !== 'mentor') {
       throw new BadRequestException(
-        'The assigned user must have the docente role',
+        'The assigned user must have the mentor role',
       );
     }
 

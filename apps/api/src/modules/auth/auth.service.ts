@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { SupabaseService } from '../../common/supabase/supabase.service.js';
 import type { AuthenticatedUser } from './auth.types.js';
+import { ROLES } from './auth.types.js';
 import type { LoginDto } from './dto/login.dto.js';
 import type { RegisterDto } from './dto/register.dto.js';
 
@@ -62,6 +63,8 @@ export class AuthService {
     }
 
     const row = data as ProfileRow;
+    if (!ROLES.includes(row.role))
+      throw new UnauthorizedException('Invalid profile role');
     return {
       id: row.id,
       email: row.email,

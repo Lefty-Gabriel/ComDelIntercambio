@@ -22,7 +22,7 @@ export class LiveSessionsController {
   constructor(private readonly sessions: LiveSessionsService) {}
 
   @Post()
-  @Roles('admin', 'docente')
+  @Roles('admin', 'mentor')
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateLiveSessionDto,
@@ -47,7 +47,7 @@ export class LiveSessionsController {
   }
 
   @Post(':id/end')
-  @Roles('admin', 'docente')
+  @Roles('admin', 'mentor')
   @HttpCode(HttpStatus.OK)
   end(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.sessions.end(user, id);

@@ -25,7 +25,7 @@ export class CoursesController {
   @Post()
   @Roles('admin')
   create(@Body() dto: CreateCourseDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.courses.create(dto, user.id);
+    return this.courses.create(dto, user);
   }
 
   @Get()
@@ -38,8 +38,9 @@ export class CoursesController {
   assignDocente(
     @Param('courseId') courseId: string,
     @Body() dto: AssignDocenteDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.courses.assignDocente(courseId, dto.docenteId);
+    return this.courses.assignDocente(courseId, dto.docenteId, user);
   }
 
   @Post(':courseId/enrollments')
@@ -49,12 +50,15 @@ export class CoursesController {
     @Body() dto: EnrollDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.courses.enroll(courseId, dto.studentId, user.id);
+    return this.courses.enroll(courseId, dto.studentId, user);
   }
 
   @Get(':courseId/enrollments')
-  @Roles('admin', 'docente')
-  listEnrollments(@Param('courseId') courseId: string) {
-    return this.courses.listEnrollments(courseId);
+  @Roles('admin', 'mentor')
+  listEnrollments(
+    @Param('courseId') courseId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.courses.listEnrollments(courseId, user);
   }
 }

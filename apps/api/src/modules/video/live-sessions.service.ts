@@ -72,6 +72,8 @@ export class LiveSessionsService {
   }
 
   async list(user: AuthenticatedUser): Promise<LiveSession[]> {
+    if (!['admin', 'mentor', 'estudiante'].includes(user.role))
+      throw new ForbiddenException('Academic access required');
     const query = this.supabase.client
       .schema('video')
       .from('live_sessions')
@@ -86,7 +88,7 @@ export class LiveSessionsService {
     }
 
     const courseIds =
-      user.role === 'docente'
+      user.role === 'mentor'
         ? await this.courses.courseIdsForDocente(user.id)
         : await this.courses.courseIdsForStudent(user.id);
 
@@ -155,11 +157,13 @@ export class LiveSessionsService {
     courseId: string,
   ): Promise<void> {
     if (user.role === 'admin') return;
-    if (user.role === 'docente') {
+    if (user.role === 'mentor') {
       const docenteId = await this.courses.getCourseDocenteId(courseId);
       if (docenteId === user.id) return;
     }
-    throw new ForbiddenException('You cannot manage live sessions for this course');
+    throw new ForbiddenException(
+      'You cannot manage live sessions for this course',
+    );
   }
 
   private async assertCanView(
@@ -167,11 +171,13 @@ export class LiveSessionsService {
     row: LiveSessionRow,
   ): Promise<void> {
     if (user.role === 'admin') return;
-    if (user.role === 'docente') {
+    if (user.role === 'mentor') {
       const docenteId = await this.courses.getCourseDocenteId(row.course_id);
       if (docenteId === user.id) return;
       throw new ForbiddenException('You cannot view this live session');
     }
+    if (user.role !== 'estudiante')
+      throw new ForbiddenException('Academic access required');
     const enrolled = await this.courses.isEnrolled(row.course_id, user.id);
     if (!enrolled) {
       throw new ForbiddenException('You are not enrolled in this course');
@@ -183,7 +189,7 @@ export class LiveSessionsService {
     row: LiveSessionRow,
   ): Promise<boolean> {
     if (user.role === 'admin') return true;
-    if (user.role === 'docente') {
+    if (user.role === 'mentor') {
       const docenteId = await this.courses.getCourseDocenteId(row.course_id);
       return docenteId === user.id;
     }

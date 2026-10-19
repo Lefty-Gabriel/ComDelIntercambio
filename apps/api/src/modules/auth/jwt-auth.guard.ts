@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import { SupabaseService } from '../../common/supabase/supabase.service.js';
 import type { AuthenticatedUser, Role } from './auth.types.js';
+import { ROLES } from './auth.types.js';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -62,6 +63,10 @@ export class JwtAuthGuard implements CanActivate {
 
     if (error || !data) {
       throw new UnauthorizedException('Profile not found');
+    }
+
+    if (!ROLES.includes(data.role as Role)) {
+      throw new UnauthorizedException('Invalid profile role');
     }
 
     request.user = {

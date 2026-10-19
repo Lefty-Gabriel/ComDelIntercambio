@@ -136,13 +136,20 @@ export class VideosService {
       .single();
 
     if (error || !data) {
-      throw new BadRequestException(error?.message ?? 'Could not complete video');
+      throw new BadRequestException(
+        error?.message ?? 'Could not complete video',
+      );
     }
     return this.mapVideo(data as VideoRow);
   }
 
   async list(user: AuthenticatedUser): Promise<Video[]> {
-    const query = this.supabase.client.schema('video').from('videos').select('*');
+    if (!['admin', 'mentor', 'estudiante'].includes(user.role))
+      throw new ForbiddenException('Academic access required');
+    const query = this.supabase.client
+      .schema('video')
+      .from('videos')
+      .select('*');
 
     if (user.role === 'admin') {
       const { data, error } = await query.order('created_at', {
@@ -153,7 +160,7 @@ export class VideosService {
     }
 
     let courseIds: string[];
-    if (user.role === 'docente') {
+    if (user.role === 'mentor') {
       courseIds = await this.courses.courseIdsForDocente(user.id);
       const { data, error } = await query
         .in('course_id', courseIds)
@@ -190,13 +197,18 @@ export class VideosService {
       .createSignedUrl(row.storage_path, PLAYBACK_URL_TTL_SECONDS);
 
     if (error || !data) {
-      throw new BadRequestException(error?.message ?? 'Could not sign playback URL');
+      throw new BadRequestException(
+        error?.message ?? 'Could not sign playback URL',
+      );
     }
 
     return { url: data.signedUrl, expiresIn: PLAYBACK_URL_TTL_SECONDS };
   }
 
-  async remove(user: AuthenticatedUser, id: string): Promise<{ deleted: true }> {
+  async remove(
+    user: AuthenticatedUser,
+    id: string,
+  ): Promise<{ deleted: true }> {
     const row = await this.getRowOrFail(id);
     await this.assertCanManageVideo(user, row);
     await this.deleteRow(id, row.storage_path);
@@ -225,7 +237,7 @@ export class VideosService {
     courseId: string,
   ): Promise<void> {
     if (user.role === 'admin') return;
-    if (user.role === 'docente') {
+    if (user.role === 'mentor') {
       const docenteId = await this.courses.getCourseDocenteId(courseId);
       if (docenteId === user.id) return;
     }
@@ -244,11 +256,13 @@ export class VideosService {
     row: VideoRow,
   ): Promise<void> {
     if (user.role === 'admin') return;
-    if (user.role === 'docente') {
+    if (user.role === 'mentor') {
       const docenteId = await this.courses.getCourseDocenteId(row.course_id);
       if (docenteId === user.id) return;
       throw new ForbiddenException('You cannot view this video');
     }
+    if (user.role !== 'estudiante')
+      throw new ForbiddenException('Academic access required');
     const enrolled = await this.courses.isEnrolled(row.course_id, user.id);
     if (!enrolled) {
       throw new ForbiddenException('You are not enrolled in this course');

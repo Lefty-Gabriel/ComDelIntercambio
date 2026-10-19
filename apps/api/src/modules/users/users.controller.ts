@@ -4,6 +4,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { UpdateRoleDto } from './dto/update-role.dto.js';
 import { UsersService } from './users.service.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { AuthenticatedUser } from '../auth/auth.types.js';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -12,13 +14,17 @@ export class UsersController {
 
   @Get()
   @Roles('admin')
-  list() {
-    return this.users.list();
+  list(@CurrentUser() user: AuthenticatedUser) {
+    return this.users.list(user);
   }
 
   @Patch(':id/role')
   @Roles('admin')
-  updateRole(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
-    return this.users.updateRole(id, dto.role);
+  updateRole(
+    @Param('id') id: string,
+    @Body() dto: UpdateRoleDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.users.updateRole(id, dto.role, user);
   }
 }

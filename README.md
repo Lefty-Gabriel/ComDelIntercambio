@@ -1,7 +1,34 @@
 # Traction
 
 Plataforma educativa modular. Los cursos se organizan por **modulos** con material
-(videos, PDFs y foros). Tres roles: **alumno**, **docente** y **admin**.
+(videos, PDFs y foros). Cuatro roles: **admin**, **mentor**, **estudiante** y **soporte**.
+
+## Roles y migracion
+
+`admin` administra usuarios, roles y cursos. `mentor` accede al material y a las
+inscripciones de sus cursos asignados. `estudiante` accede al material de los cursos
+donde tiene una inscripcion activa. `soporte` puede autenticarse y consultar su
+propio perfil (`/auth/me`); no tiene acceso academico ni administra usuarios.
+El modulo de tickets todavia no existe. Los registros nuevos reciben `estudiante`;
+solo un administrador puede cambiar roles.
+
+Aplicar las migraciones en orden, incluyendo
+`supabase/migrations/20261018140000_four_roles.sql`, antes de iniciar esta version
+de la API. La migracion renombra los roles existentes sin recrear perfiles ni
+relaciones. Coordinar la actualizacion con una ventana de mantenimiento: la API
+anterior utiliza los nombres viejos. No requiere reiniciar ni borrar la base.
+
+Los schemas `iam`, `courses` y `video` siguen expuestos para el cliente de servicio
+de la API, pero se revoca el acceso directo de `anon` y `authenticated` a sus datos.
+Todo cliente academico debe usar la API; Auth de Supabase permanece disponible.
+Mantener la clave `service_role` exclusivamente en el servidor. La columna
+`docente_id`, el campo `docenteId` y la ruta `/docente` conservan sus nombres.
+
+Verificacion enfocada de permisos:
+
+```bash
+npm run test --workspace api -- src/modules/authorization.spec.ts src/modules/auth/auth-permissions.spec.ts
+```
 
 ## Arquitectura
 
