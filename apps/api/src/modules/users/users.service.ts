@@ -6,12 +6,21 @@ import {
 import { SupabaseService } from '../../common/supabase/supabase.service.js';
 import type { AuthenticatedUser, Role } from '../auth/auth.types.js';
 import { ROLES } from '../auth/auth.types.js';
+import type { CreateUserDto } from './dto/create-user.dto.js';
 
 interface ProfileRow {
   id: string;
   email: string;
   full_name: string;
   role: Role;
+  title: string;
+  company: string;
+  phone: string;
+  location: string;
+  linkedin: string;
+  website: string;
+  bio: string;
+  avatar_url: string;
 }
 
 @Injectable()
@@ -24,11 +33,29 @@ export class UsersService {
     const { data, error } = await this.supabase.client
       .schema('iam')
       .from('profiles')
-      .select('id, email, full_name, role')
+      .select('id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url')
       .order('created_at', { ascending: false });
 
     if (error) throw new BadRequestException(error.message);
     return (data as ProfileRow[]).map((row) => this.mapProfile(row));
+  }
+
+  async create(dto: CreateUserDto): Promise<AuthenticatedUser> {
+    const { data, error } = await this.supabase.client.auth.admin.createUser({
+      email: dto.email.trim().toLowerCase(),
+      password: dto.password,
+      email_confirm: true,
+      user_metadata: { full_name: dto.fullName.trim() },
+    });
+    if (error || !data.user) throw new BadRequestException(error?.message ?? 'Could not create user');
+    const { data: profile, error: profileError } = await this.supabase.client
+      .schema('iam').from('profiles')
+      .update({ role: dto.role, company: dto.company?.trim() ?? '', updated_at: new Date().toISOString() })
+      .eq('id', data.user.id)
+      .select('id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url')
+      .single();
+    if (profileError || !profile) throw new BadRequestException(profileError?.message ?? 'Could not create profile');
+    return this.mapProfile(profile as ProfileRow);
   }
 
   async updateRole(
@@ -44,7 +71,7 @@ export class UsersService {
       .from('profiles')
       .update({ role, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select('id, email, full_name, role')
+      .select('id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url')
       .single();
 
     if (error || !data) {
@@ -59,6 +86,14 @@ export class UsersService {
       email: row.email,
       fullName: row.full_name,
       role: row.role,
+      title: row.title,
+      company: row.company,
+      phone: row.phone,
+      location: row.location,
+      linkedin: row.linkedin,
+      website: row.website,
+      bio: row.bio,
+      avatarUrl: row.avatar_url,
     };
   }
 }

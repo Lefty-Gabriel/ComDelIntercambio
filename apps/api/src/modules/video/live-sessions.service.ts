@@ -20,6 +20,8 @@ interface LiveSessionRow {
   started_at: string | null;
   ended_at: string | null;
   created_at: string;
+  scheduled_at: string;
+  duration_minutes: number;
 }
 
 export interface LiveSession {
@@ -32,6 +34,8 @@ export interface LiveSession {
   startedAt: string | null;
   endedAt: string | null;
   createdAt: string;
+  scheduledAt: string;
+  durationMinutes: number;
 }
 
 @Injectable()
@@ -44,7 +48,7 @@ export class LiveSessionsService {
 
   async create(
     user: AuthenticatedUser,
-    input: { courseId: string; title: string },
+    input: { courseId: string; title: string; scheduledAt: string; durationMinutes: number },
   ): Promise<LiveSession> {
     await this.assertCanManageCourse(user, input.courseId);
 
@@ -59,6 +63,8 @@ export class LiveSessionsService {
         room_name: `session_${id}`,
         status: 'scheduled',
         started_by: user.id,
+        scheduled_at: input.scheduledAt,
+        duration_minutes: input.durationMinutes,
       })
       .select('*')
       .single();
@@ -220,6 +226,8 @@ export class LiveSessionsService {
       startedAt: row.started_at,
       endedAt: row.ended_at,
       createdAt: row.created_at,
+      scheduledAt: row.scheduled_at,
+      durationMinutes: row.duration_minutes,
     };
   }
 }
