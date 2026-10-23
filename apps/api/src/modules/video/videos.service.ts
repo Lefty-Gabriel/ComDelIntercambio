@@ -162,6 +162,7 @@ export class VideosService {
     let courseIds: string[];
     if (user.role === 'mentor') {
       courseIds = await this.courses.courseIdsForDocente(user.id);
+      if (!courseIds.length) return [];
       const { data, error } = await query
         .in('course_id', courseIds)
         .order('created_at', { ascending: false });
@@ -170,6 +171,7 @@ export class VideosService {
     }
 
     courseIds = await this.courses.courseIdsForStudent(user.id);
+    if (!courseIds.length) return [];
     const { data, error } = await query
       .in('course_id', courseIds)
       .eq('status', 'ready')

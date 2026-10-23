@@ -49,6 +49,44 @@ infra/   infraestructura local (Docker / Supabase)
 - **Clases en vivo**: LiveKit Cloud (HLS para broadcast; WebRTC a futuro)
 - **Notificaciones**: in-app
 
+## Dashboard del estudiante
+
+El frontend obtiene la información del alumno desde `GET /dashboard/student`.
+La API filtra los cursos por matrículas activas y consulta en Supabase los módulos,
+las lecciones publicadas, el progreso, las próximas clases y las novedades. El
+progreso se guarda con `PATCH /dashboard/student/lessons/:lessonId`; antes de
+actualizarlo, la API comprueba que el usuario esté matriculado en el curso.
+
+Las tablas `courses.course_modules`, `courses.lessons`,
+`courses.lesson_progress` y `courses.announcements` tienen RLS habilitado y no
+permiten acceso directo desde los roles públicos. Toda lectura y escritura pasa
+por la API del servidor.
+
+Las lecciones pueden combinar video, contenido de texto y registros de
+`courses.lesson_resources`. Los archivos se guardan en el bucket privado
+`course-resources`; `GET /dashboard/student/resources/:resourceId/access`
+comprueba la matrícula y genera un enlace temporal. Los enlaces externos solo
+aceptan los protocolos HTTP y HTTPS.
+
+Las notas privadas se guardan con
+`PUT /dashboard/student/lessons/:lessonId/note` en
+`courses.student_lesson_notes`. Las preguntas se crean con
+`POST /dashboard/student/lessons/:lessonId/questions` y quedan vinculadas a la
+lección y al estudiante.
+
+## Dashboards por rol
+
+- `GET /dashboard/admin` calcula usuarios, matrículas, sesiones, videos y
+  progreso directamente desde Supabase. Solo está disponible para `admin`.
+- `GET /dashboard/mentor` devuelve cursos asignados, estudiantes, progreso y
+  preguntas reales. Solo incluye cursos donde el usuario es el mentor asignado.
+- `PATCH /dashboard/mentor/questions/:questionId` permite responder una duda
+  únicamente si pertenece a un curso asignado al mentor autenticado.
+
+Las tablas `courses.student_lesson_notes` y `courses.lesson_questions` tienen
+RLS habilitado y acceso directo revocado. La API valida rol, matrícula y
+asignación de curso antes de leer o modificar información.
+
 ## Requisitos
 
 - Node.js >= 22 (probado con 24.14.1)

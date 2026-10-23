@@ -48,7 +48,12 @@ export class LiveSessionsService {
 
   async create(
     user: AuthenticatedUser,
-    input: { courseId: string; title: string; scheduledAt: string; durationMinutes: number },
+    input: {
+      courseId: string;
+      title: string;
+      scheduledAt: string;
+      durationMinutes: number;
+    },
   ): Promise<LiveSession> {
     await this.assertCanManageCourse(user, input.courseId);
 
@@ -97,6 +102,7 @@ export class LiveSessionsService {
       user.role === 'mentor'
         ? await this.courses.courseIdsForDocente(user.id)
         : await this.courses.courseIdsForStudent(user.id);
+    if (!courseIds.length) return [];
 
     const { data, error } = await query
       .in('course_id', courseIds)

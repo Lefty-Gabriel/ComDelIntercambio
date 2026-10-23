@@ -20,4 +20,5 @@ export interface AuthenticatedUser {
   website?: string;
   bio?: string;
   avatarUrl?: string;
+  createdAt?: string;
 }

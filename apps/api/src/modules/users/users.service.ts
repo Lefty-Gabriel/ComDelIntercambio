@@ -21,6 +21,7 @@ interface ProfileRow {
   website: string;
   bio: string;
   avatar_url: string;
+  created_at: string;
 }
 
 @Injectable()
@@ -33,7 +34,9 @@ export class UsersService {
     const { data, error } = await this.supabase.client
       .schema('iam')
       .from('profiles')
-      .select('id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url')
+      .select(
+        'id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url, created_at',
+      )
       .order('created_at', { ascending: false });
 
     if (error) throw new BadRequestException(error.message);
@@ -47,14 +50,25 @@ export class UsersService {
       email_confirm: true,
       user_metadata: { full_name: dto.fullName.trim() },
     });
-    if (error || !data.user) throw new BadRequestException(error?.message ?? 'Could not create user');
+    if (error || !data.user)
+      throw new BadRequestException(error?.message ?? 'Could not create user');
     const { data: profile, error: profileError } = await this.supabase.client
-      .schema('iam').from('profiles')
-      .update({ role: dto.role, company: dto.company?.trim() ?? '', updated_at: new Date().toISOString() })
+      .schema('iam')
+      .from('profiles')
+      .update({
+        role: dto.role,
+        company: dto.company?.trim() ?? '',
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', data.user.id)
-      .select('id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url')
+      .select(
+        'id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url, created_at',
+      )
       .single();
-    if (profileError || !profile) throw new BadRequestException(profileError?.message ?? 'Could not create profile');
+    if (profileError || !profile)
+      throw new BadRequestException(
+        profileError?.message ?? 'Could not create profile',
+      );
     return this.mapProfile(profile as ProfileRow);
   }
 
@@ -71,7 +85,9 @@ export class UsersService {
       .from('profiles')
       .update({ role, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select('id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url')
+      .select(
+        'id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url, created_at',
+      )
       .single();
 
     if (error || !data) {
@@ -94,6 +110,7 @@ export class UsersService {
       website: row.website,
       bio: row.bio,
       avatarUrl: row.avatar_url,
+      createdAt: row.created_at,
     };
   }
 }

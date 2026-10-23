@@ -23,6 +23,7 @@ interface ProfileRow {
   website: string;
   bio: string;
   avatar_url: string;
+  created_at: string;
 }
 
 @Injectable()
@@ -63,7 +64,9 @@ export class AuthService {
     const { data, error } = await this.supabase.client
       .schema('iam')
       .from('profiles')
-      .select('id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url')
+      .select(
+        'id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url, created_at',
+      )
       .eq('id', id)
       .single();
 
@@ -87,10 +90,14 @@ export class AuthService {
       website: row.website,
       bio: row.bio,
       avatarUrl: row.avatar_url,
+      createdAt: row.created_at,
     };
   }
 
-  async updateProfile(id: string, dto: UpdateProfileDto): Promise<AuthenticatedUser> {
+  async updateProfile(
+    id: string,
+    dto: UpdateProfileDto,
+  ): Promise<AuthenticatedUser> {
     const updates: Record<string, string> = {};
     if (dto.fullName !== undefined) updates.full_name = dto.fullName.trim();
     if (dto.title !== undefined) updates.title = dto.title.trim();
@@ -102,29 +109,48 @@ export class AuthService {
     if (dto.bio !== undefined) updates.bio = dto.bio.trim();
     if (dto.avatarUrl !== undefined) updates.avatar_url = dto.avatarUrl.trim();
     if (dto.email !== undefined) {
-      const changed = await this.supabase.client.auth.admin.updateUserById(id, { email: dto.email, email_confirm: true });
+      const changed = await this.supabase.client.auth.admin.updateUserById(id, {
+        email: dto.email,
+        email_confirm: true,
+      });
       if (changed.error) throw new BadRequestException(changed.error.message);
       updates.email = dto.email.trim().toLowerCase();
     }
     updates.updated_at = new Date().toISOString();
-    const { error } = await this.supabase.client.schema('iam').from('profiles').update(updates).eq('id', id);
+    const { error } = await this.supabase.client
+      .schema('iam')
+      .from('profiles')
+      .update(updates)
+      .eq('id', id);
     if (error) throw new BadRequestException(error.message);
     return this.getProfile(id);
   }
 
-  async uploadAvatar(id: string, file: { buffer: Buffer; mimetype: string; size: number }): Promise<AuthenticatedUser> {
+  async uploadAvatar(
+    id: string,
+    file: { buffer: Buffer; mimetype: string; size: number },
+  ): Promise<AuthenticatedUser> {
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    if (!allowed.includes(file.mimetype)) throw new BadRequestException('Formato de imagen no permitido');
-    if (file.size > 5 * 1024 * 1024) throw new BadRequestException('La imagen no puede superar 5 MB');
-    const extension = file.mimetype === 'image/jpeg' ? 'jpg' : file.mimetype.split('/')[1];
+    if (!allowed.includes(file.mimetype))
+      throw new BadRequestException('Formato de imagen no permitido');
+    if (file.size > 5 * 1024 * 1024)
+      throw new BadRequestException('La imagen no puede superar 5 MB');
+    const extension =
+      file.mimetype === 'image/jpeg' ? 'jpg' : file.mimetype.split('/')[1];
     const path = `${id}/avatar.${extension}`;
-    const uploaded = await this.supabase.client.storage.from('profile-avatars').upload(path, file.buffer, {
-      contentType: file.mimetype,
-      upsert: true,
-      cacheControl: '3600',
-    });
+    const uploaded = await this.supabase.client.storage
+      .from('profile-avatars')
+      .upload(path, file.buffer, {
+        contentType: file.mimetype,
+        upsert: true,
+        cacheControl: '3600',
+      });
     if (uploaded.error) throw new BadRequestException(uploaded.error.message);
-    const { data } = this.supabase.client.storage.from('profile-avatars').getPublicUrl(path);
-    return this.updateProfile(id, { avatarUrl: `${data.publicUrl}?v=${Date.now()}` });
+    const { data } = this.supabase.client.storage
+      .from('profile-avatars')
+      .getPublicUrl(path);
+    return this.updateProfile(id, {
+      avatarUrl: `${data.publicUrl}?v=${Date.now()}`,
+    });
   }
 }
