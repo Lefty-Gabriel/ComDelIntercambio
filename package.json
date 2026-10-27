@@ -16,11 +16,12 @@
     "format": "npm run format --workspaces --if-present",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
-    "db:status": "supabase status"
+    "db:status": "supabase status",
+    "seed:test-users": "node scripts/seed-test-users.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2",
-    "supabase": "^2.30.4"
+    "concurrently": "^9.2.5",
+    "supabase": "^2.122.0"
   },
   "engines": {
     "node": ">=22"

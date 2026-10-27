@@ -765,65 +765,6 @@ p {
   background-color: rgba(31, 41, 55, 0.5);
 }
 
-/* Live Session Modal / Token View */
-.token-modal {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
-  box-shadow: var(--shadow-lg);
-  border-left: 4px solid var(--primary);
-}
-
-.token-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-}
-
-.token-field {
-  margin-bottom: 1rem;
-}
-
-.token-field-label {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 0.3rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.token-code {
-  background-color: #030712;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 0.75rem 0.9rem;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 0.8rem;
-  color: #38bdf8;
-  word-break: break-all;
-  white-space: pre-wrap;
-  max-height: 120px;
-  overflow-y: auto;
-}
-
-.token-info-banner {
-  background-color: rgba(99, 102, 241, 0.1);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  border-radius: var(--radius-sm);
-  padding: 0.85rem 1rem;
-  font-size: 0.85rem;
-  color: #c7d2fe;
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-  margin-top: 1rem;
-}
-
 /* Utility classes */
 .flex-row {
   display: flex;

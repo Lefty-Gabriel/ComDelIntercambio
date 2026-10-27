@@ -8,13 +8,11 @@ import { randomUUID } from 'node:crypto';
 import { SupabaseService } from '../../common/supabase/supabase.service.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { CoursesService } from '../courses/courses.service.js';
-import { LivekitService } from './livekit.service.js';
 
 interface LiveSessionRow {
   id: string;
   course_id: string;
   title: string;
-  room_name: string;
   status: 'scheduled' | 'live' | 'ended';
   started_by: string | null;
   started_at: string | null;
@@ -28,7 +26,6 @@ export interface LiveSession {
   id: string;
   courseId: string;
   title: string;
-  roomName: string;
   status: LiveSessionRow['status'];
   startedBy: string | null;
   startedAt: string | null;
@@ -43,7 +40,6 @@ export class LiveSessionsService {
   constructor(
     private readonly supabase: SupabaseService,
     private readonly courses: CoursesService,
-    private readonly livekit: LivekitService,
   ) {}
 
   async create(
@@ -65,7 +61,6 @@ export class LiveSessionsService {
         id,
         course_id: input.courseId,
         title: input.title,
-        room_name: `session_${id}`,
         status: 'scheduled',
         started_by: user.id,
         scheduled_at: input.scheduledAt,
@@ -115,35 +110,6 @@ export class LiveSessionsService {
     const row = await this.getRowOrFail(id);
     await this.assertCanView(user, row);
     return this.mapSession(row);
-  }
-
-  async join(user: AuthenticatedUser, id: string) {
-    const row = await this.getRowOrFail(id);
-    await this.assertCanView(user, row);
-
-    if (row.status === 'ended') {
-      throw new BadRequestException('This live session has ended');
-    }
-
-    const canPublish = await this.canPublish(user, row);
-
-    if (canPublish && row.status === 'scheduled') {
-      const { error } = await this.supabase.client
-        .schema('video')
-        .from('live_sessions')
-        .update({ status: 'live', started_at: new Date().toISOString() })
-        .eq('id', id);
-      if (error) throw new BadRequestException(error.message);
-    }
-
-    const token = await this.livekit.createJoinToken({
-      identity: user.id,
-      name: user.fullName || user.email,
-      room: row.room_name,
-      canPublish,
-    });
-
-    return { url: this.livekit.url, room: row.room_name, token, canPublish };
   }
 
   async end(user: AuthenticatedUser, id: string): Promise<LiveSession> {
@@ -196,18 +162,6 @@ export class LiveSessionsService {
     }
   }
 
-  private async canPublish(
-    user: AuthenticatedUser,
-    row: LiveSessionRow,
-  ): Promise<boolean> {
-    if (user.role === 'admin') return true;
-    if (user.role === 'mentor') {
-      const docenteId = await this.courses.getCourseDocenteId(row.course_id);
-      return docenteId === user.id;
-    }
-    return false;
-  }
-
   private async getRowOrFail(id: string): Promise<LiveSessionRow> {
     const { data, error } = await this.supabase.client
       .schema('video')
@@ -226,7 +180,6 @@ export class LiveSessionsService {
       id: row.id,
       courseId: row.course_id,
       title: row.title,
-      roomName: row.room_name,
       status: row.status,
       startedBy: row.started_by,
       startedAt: row.started_at,

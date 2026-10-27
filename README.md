@@ -8,8 +8,8 @@ Plataforma educativa modular. Los cursos se organizan por **modulos** con materi
 `admin` administra usuarios, roles y cursos. `mentor` accede al material y a las
 inscripciones de sus cursos asignados. `estudiante` accede al material de los cursos
 donde tiene una inscripcion activa. `soporte` puede autenticarse y consultar su
-propio perfil (`/auth/me`); no tiene acceso academico ni administra usuarios.
-El modulo de tickets todavia no existe. Los registros nuevos reciben `estudiante`;
+propio perfil (`/auth/me`) y atender tickets; no tiene acceso academico ni administra usuarios.
+Los estudiantes crean tickets y conversan con el agente de soporte asignado. Los registros nuevos reciben `estudiante`;
 solo un administrador puede cambiar roles.
 
 Aplicar las migraciones en orden, incluyendo
@@ -37,7 +37,7 @@ desplegado como una sola unidad, listo para extraerse a microservicio si hiciera
 
 ```
 apps/
-  api/   NestJS (backend)  ->  Postgres (Supabase) + Supabase Storage + LiveKit
+  api/   NestJS (backend)  ->  Postgres (Supabase) + Supabase Storage
   web/   React + Vite (frontend)
 infra/   infraestructura local (Docker / Supabase)
 ```
@@ -46,7 +46,7 @@ infra/   infraestructura local (Docker / Supabase)
 - **Frontend**: React + Vite
 - **Base de datos**: Postgres (Supabase), un schema por modulo
 - **Archivos** (video/PDF): Supabase Storage (los binarios NO van en la base)
-- **Clases en vivo**: LiveKit Cloud (HLS para broadcast; WebRTC a futuro)
+- **Clases en vivo**: agenda por curso, fecha y duracion; videoconferencia pendiente.
 - **Notificaciones**: in-app
 
 ## Dashboard del estudiante
@@ -125,3 +125,13 @@ npm run dev
 | `npm run lint`    | Lint de todos los workspaces               |
 | `npm run db:start`| Levanta Supabase local (Docker)            |
 | `npm run db:stop` | Detiene Supabase local                     |
+
+## Tickets de soporte
+
+Aplicar las migraciones en orden hasta `20261027000200_support_operations_and_remove_livekit.sql` y actualizar la configuracion de schemas de Supabase para incluir `support`. Reiniciar el servicio local si ya estaba iniciado. No requiere borrar datos ni recrear la base.
+
+`GET /tickets` lista los tickets propios del estudiante o la cola de soporte. `POST /tickets` recibe `subject` y `message` para crear el ticket y su primer mensaje atomicamente. Soporte reclama un ticket con `POST /tickets/:id/claim`. Solo el estudiante propietario y el agente asignado pueden consultar o enviar mensajes en `/tickets/:id/messages`. El agente asignado cierra con `POST /tickets/:id/close`: la conversacion se elimina permanentemente y el ticket no puede reabrirse. Los administradores y mentores no acceden a tickets.
+
+El schema solo permite acceso a `service_role` desde la API, con RLS y funciones transaccionales que serializan envio y cierre. Las credenciales nunca se envian al navegador. La interfaz consulta cambios cada tres segundos y cancela las consultas al cambiar de ticket o usuario.
+
+Las clases existentes conservan sus fechas, duracion y estado. Crear una clase requiere `courseId`, `title`, `scheduledAt` (ISO 8601) y `durationMinutes` (15?480). La ruta de ingreso y la integracion de video anterior se retiraron; no hay proveedor de videoconferencia configurado.

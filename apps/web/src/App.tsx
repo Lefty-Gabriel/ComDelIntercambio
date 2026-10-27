@@ -1,21 +1,21 @@
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import type { ChangeEvent, DragEvent, FormEvent } from 'react';
 import './App.css';
+import { Tickets } from './Tickets.tsx';
+import { uploadVideo } from './upload-video.ts';
 import {
   api,
   authStorage,
-  uploadFileToSignedUrl,
 } from './api.ts';
 import type {
   Course,
-  JoinLiveSessionResponse,
   LiveSession,
   PlaybackResponse,
   User,
   Video,
 } from './api.ts';
 
-type Page = 'dashboard' | 'videos' | 'live-sessions';
+type Page = 'dashboard' | 'videos' | 'live-sessions' | 'tickets';
 
 // Helper formatters
 function formatBytes(bytes?: number): string {
@@ -51,6 +51,10 @@ function formatDate(isoString?: string | null): string {
 }
 
 export default function App() {
+  const authGeneration = useRef(0);
+  const uploadController = useRef<AbortController | null>(null);
+  const metadataCleanup = useRef<(() => void) | null>(null);
+  const playbackGeneration = useRef(0);
   // Auth state
   const [token, setToken] = useState<string | null>(() => authStorage.getToken());
   const [user, setUser] = useState<User | null>(() => authStorage.getUser());
@@ -100,15 +104,25 @@ export default function App() {
   const [sessionCourseId, setSessionCourseId] = useState('');
   const [sessionTitle, setSessionTitle] = useState('');
   const [creatingSession, setCreatingSession] = useState(false);
-  const [joinedSessionInfo, setJoinedSessionInfo] = useState<{
-    session: LiveSession;
-    details: JoinLiveSessionResponse;
-  } | null>(null);
-  const [joiningSessionId, setJoiningSessionId] = useState<string | null>(null);
-  const [copiedToken, setCopiedToken] = useState(false);
-  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [sessionDate, setSessionDate] = useState('');
+  const [sessionDuration, setSessionDuration] = useState(60);
 
   const [, startTransition] = useTransition();
+
+  useEffect(() => authStorage.subscribeInvalidation(() => {
+    authGeneration.current++;
+    metadataCleanup.current?.();
+    uploadController.current?.abort();
+    setIsUploading(false); setUploadProgress(null); setUploadStep(null);
+    playbackGeneration.current++;
+    setToken(null); setUser(null); setActivePlayback(null);
+    setCourses([]); setVideos([]); setSessions([]);
+    setUploadCourseId(''); setSessionCourseId(''); setSelectedFile(null);
+    setErrorMsg(null); setSuccessMsg(null); setLoadingData(false);
+    setFileDuration(null); setUploadTitle(''); setUploadDesc(''); setSessionTitle(''); setSessionDate(''); setSessionDuration(60);
+    setShowCourseForm(false); setNewCourseTitle(''); setNewCourseDesc(''); setLoginLoading(false);
+    setPage('dashboard');
+  }), []);
 
   // Load initial data if token exists
   useEffect(() => {
@@ -119,12 +133,20 @@ export default function App() {
 
   // Load user profile & core data
   async function loadAllData() {
+    const revision = authStorage.getRevision();
+    const current = () => revision === authStorage.getRevision();
     setLoadingData(true);
     setErrorMsg(null);
     try {
       // Refresh current user
       const currentUser = await api.getMe();
+      if (!current()) return;
       setUser(currentUser);
+      if (currentUser.role === 'soporte') {
+        setPage('tickets');
+        setCourses([]); setVideos([]); setSessions([]);
+        return;
+      }
 
       const [courseList, videoList, sessionList] = await Promise.all([
         api.getCourses(),
@@ -132,40 +154,44 @@ export default function App() {
         api.getLiveSessions(),
       ]);
 
+      if (!current()) return;
       setCourses(courseList);
       setVideos(videoList);
       setSessions(sessionList);
 
       // Pre-select first course for upload and sessions if not yet set
       if (courseList.length > 0) {
-        setUploadCourseId((prev) => prev || courseList[0].id);
+        setUploadCourseId((prev) => courseList.some(course => course.id === prev) ? prev : courseList[0].id);
         setSessionCourseId((prev) => prev || courseList[0].id);
       }
     } catch (err: unknown) {
+      if (!current()) return;
       const msg = err instanceof Error ? err.message : 'Failed to fetch data';
       setErrorMsg(msg);
       if (msg.includes('401') || msg.includes('Unauthorized')) {
         handleLogout();
       }
     } finally {
-      setLoadingData(false);
+      if (current()) setLoadingData(false);
     }
   }
 
   // Handle Login
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
+    const generation = ++authGeneration.current;
     setLoginLoading(true);
     setLoginError(null);
     try {
       const res = await api.login(loginEmail, loginPassword);
+      if (generation !== authGeneration.current) return;
       setToken(res.accessToken);
       setUser(res.user);
-      setPage('dashboard');
+      setPage(res.user.role === 'soporte' ? 'tickets' : 'dashboard');
     } catch (err: unknown) {
-      setLoginError(err instanceof Error ? err.message : 'Invalid credentials');
+      if (generation === authGeneration.current) setLoginError(err instanceof Error ? err.message : 'Invalid credentials');
     } finally {
-      setLoginLoading(false);
+      if (generation === authGeneration.current) setLoginLoading(false);
     }
   }
 
@@ -175,7 +201,6 @@ export default function App() {
     setToken(null);
     setUser(null);
     setActivePlayback(null);
-    setJoinedSessionInfo(null);
     setCourses([]);
     setVideos([]);
     setSessions([]);
@@ -209,6 +234,8 @@ export default function App() {
 
   // Video file selection & duration extraction
   function handleFileSelected(file: File) {
+    metadataCleanup.current?.();
+    setFileDuration(null);
     setSelectedFile(file);
     if (!uploadTitle.trim()) {
       // Auto-fill title from filename without extension
@@ -230,7 +257,14 @@ export default function App() {
       URL.revokeObjectURL(tempVideo.src);
       setFileDuration(null);
     };
-    tempVideo.src = URL.createObjectURL(file);
+    const objectUrl = URL.createObjectURL(file);
+    metadataCleanup.current = () => {
+      tempVideo.onloadedmetadata = null;
+      tempVideo.onerror = null;
+      URL.revokeObjectURL(objectUrl);
+      tempVideo.removeAttribute('src');
+    };
+    tempVideo.src = objectUrl;
   }
 
   function handleFileInputChange(e: ChangeEvent<HTMLInputElement>) {
@@ -263,39 +297,27 @@ export default function App() {
       return;
     }
 
+    const revision = authStorage.getRevision();
+    const controller = new AbortController();
+    uploadController.current?.abort();
+    uploadController.current = controller;
+    const current = () => revision === authStorage.getRevision() && !controller.signal.aborted;
     setIsUploading(true);
     setUploadProgress(0);
     setErrorMsg(null);
     setSuccessMsg(null);
 
     try {
-      // Step 1: Request signed upload URL from backend
-      setUploadStep('Step 1/3: Registering video metadata...');
-      const createRes = await api.createVideo({
+      const completedVideo = await uploadVideo({
         courseId: uploadCourseId,
         title: uploadTitle.trim(),
         description: uploadDesc.trim() || undefined,
         mimeType: selectedFile.type || 'video/mp4',
         sizeBytes: selectedFile.size,
         durationSeconds: fileDuration ?? undefined,
-      });
-
-      const videoId = createRes.video.id;
-      const signedUrl = createRes.upload.signedUrl;
-
-      // Step 2: Upload binary bytes to storage
-      setUploadStep('Step 2/3: Uploading file bytes to storage...');
-      await uploadFileToSignedUrl(signedUrl, selectedFile, (percent) => {
-        setUploadProgress(percent);
-      });
-
-      // Step 3: Complete video registration
-      setUploadStep('Step 3/3: Finalizing video record...');
-      const completedVideo = await api.completeVideo(videoId, {
-        sizeBytes: selectedFile.size,
-        durationSeconds: fileDuration ?? undefined,
-        mimeType: selectedFile.type || 'video/mp4',
-      });
+      }, selectedFile, percent => { if (current()) setUploadProgress(percent); }, step => { if (current()) setUploadStep(step); }, controller.signal);
+      if (!current()) return;
+      const videoId = completedVideo.id;
 
       // Update state
       setVideos((prev) => [completedVideo, ...prev.filter((v) => v.id !== videoId)]);
@@ -309,24 +331,26 @@ export default function App() {
       setUploadProgress(null);
       setUploadStep(null);
     } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Video upload failed');
+      if (current()) setErrorMsg(err instanceof Error ? err.message : 'Video upload failed');
     } finally {
-      setIsUploading(false);
+      if (current()) setIsUploading(false);
     }
   }
 
   // Playback Flow
   async function handlePlayVideo(video: Video) {
+    const generation = ++playbackGeneration.current;
     setLoadingPlaybackId(video.id);
     setErrorMsg(null);
     try {
       const playback = await api.getVideoPlayback(video.id);
+      if (generation !== playbackGeneration.current) return;
       setActivePlayback({ video, playback });
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Could not fetch playback stream');
+      if (generation === playbackGeneration.current) setErrorMsg(err instanceof Error ? err.message : 'Could not fetch playback stream');
     } finally {
-      setLoadingPlaybackId(null);
+      if (generation === playbackGeneration.current) setLoadingPlaybackId(null);
     }
   }
 
@@ -335,6 +359,8 @@ export default function App() {
     if (!window.confirm('Are you sure you want to delete this video?')) return;
     setErrorMsg(null);
     try {
+      playbackGeneration.current++;
+      setLoadingPlaybackId(null);
       await api.deleteVideo(videoId);
       setVideos((prev) => prev.filter((v) => v.id !== videoId));
       if (activePlayback?.video.id === videoId) {
@@ -360,6 +386,8 @@ export default function App() {
       const newSession = await api.createLiveSession({
         courseId: sessionCourseId,
         title: sessionTitle.trim(),
+        scheduledAt: new Date(sessionDate).toISOString(),
+        durationMinutes: sessionDuration,
       });
       setSessions((prev) => [newSession, ...prev]);
       setSuccessMsg(`Live session "${newSession.title}" created successfully!`);
@@ -371,27 +399,6 @@ export default function App() {
     }
   }
 
-  // Join Live Session Flow
-  async function handleJoinSession(session: LiveSession) {
-    setJoiningSessionId(session.id);
-    setErrorMsg(null);
-    setCopiedToken(false);
-    setCopiedUrl(false);
-    try {
-      const details = await api.joinLiveSession(session.id);
-      setJoinedSessionInfo({ session, details });
-      // Update session status to live if it was scheduled
-      setSessions((prev) =>
-        prev.map((s) => (s.id === session.id ? { ...s, status: 'live' } : s)),
-      );
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Could not join session');
-    } finally {
-      setJoiningSessionId(null);
-    }
-  }
-
   // End Live Session Flow
   async function handleEndSession(sessionId: string) {
     if (!window.confirm('Are you sure you want to end this live session?')) return;
@@ -399,24 +406,10 @@ export default function App() {
     try {
       const ended = await api.endLiveSession(sessionId);
       setSessions((prev) => prev.map((s) => (s.id === sessionId ? ended : s)));
-      if (joinedSessionInfo?.session.id === sessionId) {
-        setJoinedSessionInfo(null);
-      }
+
       setSuccessMsg(`Session "${ended.title}" has been ended.`);
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to end session');
-    }
-  }
-
-  // Copy to clipboard helper
-  function copyToClipboard(text: string, type: 'token' | 'url') {
-    navigator.clipboard.writeText(text);
-    if (type === 'token') {
-      setCopiedToken(true);
-      setTimeout(() => setCopiedToken(false), 3000);
-    } else {
-      setCopiedUrl(true);
-      setTimeout(() => setCopiedUrl(false), 3000);
     }
   }
 
@@ -524,6 +517,7 @@ export default function App() {
         </div>
 
         <nav className="nav-links">
+          {user?.role !== 'soporte' && <>
           <button
             type="button"
             className={`nav-btn ${page === 'dashboard' ? 'active' : ''}`}
@@ -545,6 +539,8 @@ export default function App() {
           >
             🔴 Live Sessions ({sessions.length})
           </button>
+          </>}
+          {(user?.role === 'estudiante' || user?.role === 'soporte') && <button type="button" className="nav-btn" onClick={() => setPage('tickets')}>Support Tickets</button>}
         </nav>
 
         <div className="nav-user">
@@ -595,7 +591,7 @@ export default function App() {
         )}
 
         {/* ----------------- PAGE: DASHBOARD ----------------- */}
-        {page === 'dashboard' && (
+        {page === 'dashboard' && user?.role !== 'soporte' && (
           <>
             <div className="space-between">
               <div>
@@ -651,8 +647,8 @@ export default function App() {
               <div className="stat-card">
                 <div className="stat-icon amber">⚡</div>
                 <div>
-                  <div className="stat-value">LiveKit</div>
-                  <div className="stat-label">Cloud Connected</div>
+                  <div className="stat-value">Scheduling</div>
+                  <div className="stat-label">Video conferencing pending</div>
                 </div>
               </div>
             </div>
@@ -664,7 +660,7 @@ export default function App() {
                   <h3>Course Catalog</h3>
                   <p>Courses available for your role ({user?.role})</p>
                 </div>
-                {(user?.role === 'admin' || user?.role === 'mentor') && (
+                {user?.role === 'admin' && (
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
@@ -676,7 +672,7 @@ export default function App() {
               </div>
 
               {/* Course Creation Form */}
-              {showCourseForm && (
+              {showCourseForm && user?.role === 'admin' && (
                 <form
                   onSubmit={handleCreateCourse}
                   style={{
@@ -792,7 +788,7 @@ export default function App() {
         )}
 
         {/* ----------------- PAGE: VIDEOS ----------------- */}
-        {page === 'videos' && (
+        {page === 'videos' && user?.role !== 'soporte' && (
           <>
             <div className="space-between">
               <div>
@@ -831,7 +827,7 @@ export default function App() {
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
-                    onClick={() => setActivePlayback(null)}
+                    onClick={() => { playbackGeneration.current++; setLoadingPlaybackId(null); setActivePlayback(null); }}
                   >
                     ✕ Close Player
                   </button>
@@ -962,15 +958,13 @@ export default function App() {
                     }}
                     onDragLeave={() => setIsDragging(false)}
                     onDrop={handleDrop}
-                    onClick={() => {
-                      document.getElementById('video-file-picker')?.click();
-                    }}
                   >
+                    <label htmlFor="video-file-picker">Choose a video file</label>
                     <input
                       id="video-file-picker"
                       type="file"
                       accept="video/*"
-                      style={{ display: 'none' }}
+                      className="form-control"
                       onChange={handleFileInputChange}
                     />
                     <span className="dropzone-icon">📹</span>
@@ -1002,6 +996,7 @@ export default function App() {
                         className="btn btn-secondary btn-sm"
                         onClick={(e) => {
                           e.stopPropagation();
+                          metadataCleanup.current?.();
                           setSelectedFile(null);
                           setFileDuration(null);
                         }}
@@ -1105,54 +1100,8 @@ export default function App() {
                             <td>{formatDate(v.createdAt)}</td>
                             <td>
                               <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                                {v.status === 'ready' ? (
-                                  <button
-                                    type="button"
-                                    className={`btn btn-sm ${isPlaying ? 'btn-success' : 'btn-primary'}`}
-                                    onClick={() => handlePlayVideo(v)}
-                                    disabled={isLoadingThis}
-                                  >
-                                    {isLoadingThis ? (
-                                      <span className="loading-spinner"></span>
-                                    ) : isPlaying ? (
-                                      'Playing'
-                                    ) : (
-                                      '▶ Play'
-                                    )}
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="btn btn-secondary btn-sm"
-                                    title="Complete video registration"
-                                    onClick={async () => {
-                                      try {
-                                        const res = await api.completeVideo(v.id);
-                                        setVideos((prev) =>
-                                          prev.map((item) => (item.id === v.id ? res : item)),
-                                        );
-                                        setSuccessMsg(`Video "${res.title}" marked ready.`);
-                                      } catch (err: unknown) {
-                                        setErrorMsg(
-                                          err instanceof Error ? err.message : 'Complete failed',
-                                        );
-                                      }
-                                    }}
-                                  >
-                                    Finalize
-                                  </button>
-                                )}
-
-                                {(user?.role === 'admin' || user?.role === 'mentor') && (
-                                  <button
-                                    type="button"
-                                    className="btn btn-danger btn-sm"
-                                    onClick={() => handleDeleteVideo(v.id)}
-                                    title="Delete video"
-                                  >
-                                    ✕
-                                  </button>
-                                )}
+                                {v.status === 'ready' && <button type="button" className="btn btn-primary btn-sm" disabled={isLoadingThis} onClick={() => handlePlayVideo(v)}>{isLoadingThis ? 'Loading...' : isPlaying ? 'Playing' : 'Play'}</button>}
+                                {(user?.role === 'admin' || user?.role === 'mentor') && <button type="button" className="btn btn-danger btn-sm" onClick={() => handleDeleteVideo(v.id)}>Delete</button>}
                               </div>
                             </td>
                           </tr>
@@ -1165,288 +1114,23 @@ export default function App() {
             </div>
           </>
         )}
-
-        {/* ----------------- PAGE: LIVE SESSIONS ----------------- */}
-        {page === 'live-sessions' && (
-          <>
-            <div className="space-between">
-              <div>
-                <h2>Live Class Sessions</h2>
-                <p>Real-time meetings backed by LiveKit Cloud server token generation</p>
-              </div>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={loadAllData}
-                disabled={loadingData}
-              >
-                {loadingData ? (
-                  <>
-                    <span className="loading-spinner"></span> Loading...
-                  </>
-                ) : (
-                  '🔄 Refresh'
-                )}
-              </button>
-            </div>
-
-            {/* Active Join Response Modal / Panel */}
-            {joinedSessionInfo && (
-              <div className="token-modal">
-                <div className="token-modal-header">
-                  <div>
-                    <span className="badge badge-live">● Joined Session</span>
-                    <h3 style={{ marginTop: '0.4rem' }}>
-                      {joinedSessionInfo.session.title}
-                    </h3>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setJoinedSessionInfo(null)}
-                  >
-                    ✕ Dismiss Details
-                  </button>
-                </div>
-
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-                    gap: '1rem',
-                  }}
-                >
-                  <div className="token-field">
-                    <div className="token-field-label">
-                      <span>LiveKit Host URL</span>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
-                        onClick={() =>
-                          copyToClipboard(joinedSessionInfo.details.url, 'url')
-                        }
-                      >
-                        {copiedUrl ? 'Copied!' : 'Copy URL'}
-                      </button>
-                    </div>
-                    <div className="token-code">{joinedSessionInfo.details.url}</div>
-                  </div>
-
-                  <div className="token-field">
-                    <div className="token-field-label">
-                      <span>Room Name</span>
-                      <span className="badge badge-scheduled">
-                        Can Publish: {joinedSessionInfo.details.canPublish ? 'Yes' : 'No'}
-                      </span>
-                    </div>
-                    <div className="token-code">{joinedSessionInfo.details.room}</div>
-                  </div>
-                </div>
-
-                <div className="token-field">
-                  <div className="token-field-label">
-                    <span>Generated LiveKit JWT Token</span>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
-                      onClick={() =>
-                        copyToClipboard(joinedSessionInfo.details.token, 'token')
-                      }
-                    >
-                      {copiedToken ? '✓ Copied Token!' : '📋 Copy Token'}
-                    </button>
-                  </div>
-                  <div className="token-code" style={{ maxHeight: '110px' }}>
-                    {joinedSessionInfo.details.token}
-                  </div>
-                </div>
-
-                <div className="token-info-banner">
-                  <span style={{ fontSize: '1.25rem' }}>ℹ️</span>
-                  <div>
-                    <strong>LiveKit Integration Verification:</strong>
-                    <div style={{ marginTop: '0.2rem', lineHeight: '1.4' }}>
-                      This token was generated by the NestJS LiveKit service. An active video
-                      stream requires the <code>@livekit/components-react</code> SDK or a
-                      LiveKit client application. You can paste this host URL and token into{' '}
-                      <a
-                        href="https://meet.livekit.io"
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ color: '#818cf8', textDecoration: 'underline' }}
-                      >
-                        LiveKit Meet
-                      </a>{' '}
-                      to test streaming video and audio directly.
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Create Session Card */}
-            {(user?.role === 'admin' || user?.role === 'mentor') && (
-              <div className="card">
-                <div className="card-header">
-                  <div>
-                    <h3>Schedule / Start Live Session</h3>
-                    <p>Creates a session room associated with a course</p>
-                  </div>
-                </div>
-
-                <form onSubmit={handleCreateSession}>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                      gap: '1rem',
-                    }}
-                  >
-                    <div className="form-group">
-                      <label htmlFor="session-course">Select Course *</label>
-                      <select
-                        id="session-course"
-                        className="form-control"
-                        value={sessionCourseId}
-                        onChange={(e) => setSessionCourseId(e.target.value)}
-                        required
-                      >
-                        {courses.length === 0 && (
-                          <option value="">No courses available</option>
-                        )}
-                        {courses.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="form-group">
-                      <label htmlFor="session-title">Session Title *</label>
-                      <input
-                        id="session-title"
-                        type="text"
-                        className="form-control"
-                        value={sessionTitle}
-                        onChange={(e) => setSessionTitle(e.target.value)}
-                        placeholder="e.g. Q&amp;A Architecture Workshop"
-                        required
-                        minLength={3}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-                    <button
-                      type="submit"
-                      className="btn btn-primary"
-                      disabled={creatingSession || sessionTitle.trim().length < 3 || !sessionCourseId}
-                    >
-                      {creatingSession ? (
-                        <>
-                          <span className="loading-spinner"></span> Creating...
-                        </>
-                      ) : (
-                        '📡 Create Live Session'
-                      )}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
-
-            {/* Live Sessions List Table */}
-            <div className="card">
-              <div className="card-header">
-                <div>
-                  <h3>All Live Sessions ({sessions.length})</h3>
-                  <p>Join active sessions to acquire a participant token</p>
-                </div>
-              </div>
-
-              {sessions.length === 0 ? (
-                <div className="empty-state">
-                  <span className="empty-state-icon">📡</span>
-                  <p>No live sessions found. Create a session to get started!</p>
-                </div>
-              ) : (
-                <div className="table-container">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Title &amp; Room</th>
-                        <th>Course</th>
-                        <th>Status</th>
-                        <th>Created</th>
-                        <th>Ended</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sessions.map((s) => {
-                        const isJoining = joiningSessionId === s.id;
-                        const isJoined = joinedSessionInfo?.session.id === s.id;
-                        return (
-                          <tr key={s.id}>
-                            <td>
-                              <div style={{ fontWeight: 600 }}>{s.title}</div>
-                              <div className="course-id-chip" style={{ marginTop: '3px' }}>
-                                Room: {s.roomName}
-                              </div>
-                            </td>
-                            <td>{courseMap.get(s.courseId) || s.courseId}</td>
-                            <td>
-                              <span className={`badge badge-${s.status}`}>
-                                {s.status === 'live' && '● Live Now'}
-                                {s.status === 'scheduled' && '📅 Scheduled'}
-                                {s.status === 'ended' && 'Ended'}
-                              </span>
-                            </td>
-                            <td>{formatDate(s.createdAt)}</td>
-                            <td>{formatDate(s.endedAt)}</td>
-                            <td>
-                              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                                <button
-                                  type="button"
-                                  className={`btn btn-sm ${isJoined ? 'btn-success' : 'btn-primary'}`}
-                                  onClick={() => handleJoinSession(s)}
-                                  disabled={isJoining}
-                                >
-                                  {isJoining ? (
-                                    <span className="loading-spinner"></span>
-                                  ) : isJoined ? (
-                                    'Joined'
-                                  ) : (
-                                    '🔑 Join'
-                                  )}
-                                </button>
-
-                                {s.status !== 'ended' &&
-                                  (user?.role === 'admin' || user?.role === 'mentor') && (
-                                    <button
-                                      type="button"
-                                      className="btn btn-danger btn-sm"
-                                      onClick={() => handleEndSession(s.id)}
-                                      title="End session"
-                                    >
-                                      End
-                                    </button>
-                                  )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </>
-        )}
+        {page === 'live-sessions' && user?.role !== 'soporte' && <>
+          <h2>Live Class Sessions</h2>
+          <p>Schedule classes by course, date, and duration. Video conferencing is not configured.</p>
+          <button type="button" className="btn btn-secondary" onClick={loadAllData} disabled={loadingData}>Refresh</button>
+          {(user?.role === 'admin' || user?.role === 'mentor') && <form className="card" onSubmit={handleCreateSession}>
+            <h3>Schedule Live Session</h3>
+            <label htmlFor="session-course">Course</label><select id="session-course" className="form-control" required value={sessionCourseId} onChange={e => setSessionCourseId(e.target.value)}>{!courses.length && <option value="">No courses available</option>}{courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}</select>
+            <label htmlFor="session-title">Title</label><input id="session-title" className="form-control" required minLength={3} value={sessionTitle} onChange={e => setSessionTitle(e.target.value)} />
+            <label htmlFor="session-date">Date and time</label><input id="session-date" className="form-control" type="datetime-local" required value={sessionDate} onChange={e => setSessionDate(e.target.value)} />
+            <label htmlFor="session-duration">Duration (minutes)</label><input id="session-duration" className="form-control" type="number" required min={15} max={480} value={sessionDuration} onChange={e => setSessionDuration(Number(e.target.value))} />
+            <button className="btn btn-primary" disabled={creatingSession || !sessionCourseId || !sessionDate || sessionTitle.trim().length < 3}>{creatingSession ? 'Creating...' : 'Schedule session'}</button>
+          </form>}
+          <div className="card"><h3>All Live Sessions ({sessions.length})</h3>
+            {!sessions.length ? <p>No sessions scheduled.</p> : <div className="table-container"><table className="data-table"><thead><tr><th>Title</th><th>Course</th><th>Scheduled</th><th>Duration</th><th>Status</th><th>Actions</th></tr></thead><tbody>{sessions.map(session => <tr key={session.id}><td>{session.title}</td><td>{courseMap.get(session.courseId) || session.courseId}</td><td>{formatDate(session.scheduledAt)}</td><td>{session.durationMinutes} minutes</td><td>{session.status}</td><td>{session.status !== 'ended' && (user?.role === 'admin' || user?.role === 'mentor') && <button className="btn btn-danger btn-sm" onClick={() => handleEndSession(session.id)}>End</button>}</td></tr>)}</tbody></table></div>}
+          </div>
+        </>}
+        {page === 'tickets' && user && <Tickets key={user.id} user={user} />}
       </main>
     </>
   );

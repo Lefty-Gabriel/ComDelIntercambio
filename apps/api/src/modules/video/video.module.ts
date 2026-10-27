@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { CoursesModule } from '../courses/courses.module.js';
-import { LivekitService } from './livekit.service.js';
 import { LiveSessionsController } from './live-sessions.controller.js';
 import { LiveSessionsService } from './live-sessions.service.js';
 import { VideoRetentionService } from './video-retention.service.js';
@@ -14,7 +13,6 @@ import { VideosService } from './videos.service.js';
   providers: [
     VideosService,
     VideoRetentionService,
-    LivekitService,
     LiveSessionsService,
   ],
 })

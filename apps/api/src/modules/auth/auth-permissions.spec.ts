@@ -147,35 +147,9 @@ describe('HTTP authentication and role assignment', () => {
       expect(response.body.role).toBe(role);
     },
   );
-  it('registration never forwards a supplied elevated role to Auth', async () => {
-    const response = await request(app.getHttpServer())
-      .post('/auth/register')
-      .send({
-        email: 'a@b.com',
-        password: 'password123',
-        fullName: 'Person',
-        role: 'admin',
-      });
-    expect(response.status).toBe(201);
-    expect(response.body.role).toBe('estudiante');
-    expect(createUser).toHaveBeenCalledWith({
-      email: 'a@b.com',
-      password: 'password123',
-      email_confirm: true,
-      user_metadata: { full_name: 'Person' },
-    });
-  });
-  it('registration creates a student profile without role metadata', async () => {
-    const response = await request(app.getHttpServer())
-      .post('/auth/register')
-      .send({ email: 'a@b.com', password: 'password123', fullName: 'Person' });
-    expect(response.status).toBe(201);
-    expect(response.body.role).toBe('estudiante');
-    expect(createUser).toHaveBeenCalledWith({
-      email: 'a@b.com',
-      password: 'password123',
-      email_confirm: true,
-      user_metadata: { full_name: 'Person' },
-    });
+  it.each([{}, {role:'admin'}])('does not expose public registration: %j', async extra => {
+    const response = await request(app.getHttpServer()).post('/auth/register').send({email:'a@b.com',password:'password123',fullName:'Person',...extra});
+    expect(response.status).toBe(404);
+    expect(createUser).not.toHaveBeenCalled();
   });
 });

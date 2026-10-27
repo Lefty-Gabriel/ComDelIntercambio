@@ -195,7 +195,7 @@ describe('four-role authorization', () => {
       const operations = [
         () => courses.listForUser(user(role)),
         () => new VideosService(db, courses, {} as any).list(user(role)),
-        () => new LiveSessionsService(db, courses, {} as any).list(user(role)),
+        () => new LiveSessionsService(db, courses).list(user(role)),
       ];
       for (const operation of operations) {
         if (role === 'soporte')
@@ -209,25 +209,20 @@ describe('four-role authorization', () => {
       }
     },
   );
-  it('denies support every video and live-session action, including room tokens', async () => {
+  it('denies support every video and live-session action, including scheduling', async () => {
     const courses = {
       isEnrolled: async () => true,
       getCourseDocenteId: async () => 'person',
     } as any;
     const videos = new VideosService(persistence(), courses, {} as any);
-    const sessions = new LiveSessionsService(persistence(), courses, {
-      createJoinToken: () => {
-        throw new Error('Must not mint token');
-      },
-    } as any);
+    const sessions = new LiveSessionsService(persistence(), courses);
     const actor = user('soporte');
     for (const operation of [
       () => videos.create(actor, { courseId: 'course', title: 'Lesson' }),
       () => videos.complete(actor, 'item', {}),
       () => videos.playback(actor, 'item'),
       () => videos.remove(actor, 'item'),
-      () => sessions.create(actor, { courseId: 'course', title: 'Lesson' }),
-      () => sessions.join(actor, 'item'),
+      () => sessions.create(actor, { courseId: 'course', title: 'Lesson', scheduledAt: '2026-11-01T12:00:00Z', durationMinutes: 60 }),
       () => sessions.end(actor, 'item'),
     ])
       await expect(operation()).rejects.toBeInstanceOf(ForbiddenException);
@@ -265,7 +260,7 @@ describe('four-role authorization', () => {
       } as any;
       return kind === 'videos'
         ? new VideosService(persistence(), courses, {} as any)
-        : new LiveSessionsService(persistence(), courses, {} as any);
+        : new LiveSessionsService(persistence(), courses);
     }
     it.each(['soporte', 'owner'])(
       'denies %s even when enrolled',

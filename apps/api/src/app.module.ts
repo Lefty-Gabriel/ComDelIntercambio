@@ -13,6 +13,7 @@ import { VideoModule } from './modules/video/video.module.js';
 import { AssignmentsModule } from './modules/assignments/assignments.module.js';
 import { GradesModule } from './modules/grades/grades.module.js';
 import { ForumsModule } from './modules/forums/forums.module.js';
+import { TicketsModule } from './modules/tickets/tickets.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 
 @Module({
@@ -32,6 +33,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     GradesModule,
     ForumsModule,
     NotificationsModule,
+    TicketsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

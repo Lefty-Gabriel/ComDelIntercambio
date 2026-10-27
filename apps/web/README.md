@@ -30,3 +30,7 @@ If you are developing a production application, we recommend enabling type-aware
 ```
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+## API configuration
+
+Copy `apps/web/.env.example` to `apps/web/.env.local` and set `VITE_API_URL` to the deployed API origin before building. Vite reads environment files from `apps/web`; these values are public and embedded in the browser bundle. The development fallback is `http://localhost:3000`.

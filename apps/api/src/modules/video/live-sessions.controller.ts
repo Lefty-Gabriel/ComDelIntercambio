@@ -40,13 +40,7 @@ export class LiveSessionsController {
     return this.sessions.getById(user, id);
   }
 
-  @Post(':id/join')
-  @HttpCode(HttpStatus.OK)
-  join(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.sessions.join(user, id);
-  }
-
-  @Post(':id/end')
+ @Post(':id/end')
   @Roles('admin', 'mentor')
   @HttpCode(HttpStatus.OK)
   end(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {

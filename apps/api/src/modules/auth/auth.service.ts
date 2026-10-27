@@ -7,7 +7,6 @@ import { SupabaseService } from '../../common/supabase/supabase.service.js';
 import type { AuthenticatedUser } from './auth.types.js';
 import { ROLES } from './auth.types.js';
 import type { LoginDto } from './dto/login.dto.js';
-import type { RegisterDto } from './dto/register.dto.js';
 import type { UpdateProfileDto } from './dto/update-profile.dto.js';
 
 interface ProfileRow {
@@ -29,18 +28,6 @@ interface ProfileRow {
 @Injectable()
 export class AuthService {
   constructor(private readonly supabase: SupabaseService) {}
-
-  async register(dto: RegisterDto): Promise<AuthenticatedUser> {
-    const { data, error } = await this.supabase.client.auth.admin.createUser({
-      email: dto.email,
-      password: dto.password,
-      email_confirm: true,
-      user_metadata: { full_name: dto.fullName },
-    });
-
-    if (error) throw new BadRequestException(error.message);
-    return this.getProfile(data.user.id);
-  }
 
   async login(dto: LoginDto) {
     const { data, error } = await this.supabase.anon.auth.signInWithPassword({
