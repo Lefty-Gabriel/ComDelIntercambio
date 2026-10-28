@@ -7,6 +7,9 @@ import { SupabaseService } from '../../common/supabase/supabase.service.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 
 interface ProfileRow {
+  bio?: string;
+  linkedin?: string;
+  website?: string;
   id: string;
   email: string;
   full_name: string;
@@ -18,11 +21,18 @@ interface ProfileRow {
 }
 
 interface CourseRow {
+  description?: string;
+  docente_id?: string | null;
+  content_type?: string;
+  category?: string;
+  level?: string;
+  created_at?: string;
   id: string;
   title: string;
 }
 
 interface EnrollmentRow {
+  can_view_content?: boolean;
   course_id: string;
   student_id: string;
   status: string;
@@ -34,6 +44,7 @@ interface ModuleRow {
 }
 
 interface LessonRow {
+  duration_minutes?: number;
   id: string;
   module_id: string;
   title: string;
@@ -102,15 +113,19 @@ export class AdminDashboardService {
     }
 
     const activeEnrollmentKeys = new Set(
-      activeEnrollments.map(
-        (enrollment) => `${enrollment.student_id}:${enrollment.course_id}`,
-      ),
+      activeEnrollments
+        .filter((enrollment) => enrollment.can_view_content !== false)
+        .map(
+          (enrollment) => `${enrollment.student_id}:${enrollment.course_id}`,
+        ),
     );
-    const expectedCompletions = activeEnrollments.reduce(
-      (total, enrollment) =>
-        total + (lessonsPerCourse.get(enrollment.course_id) ?? 0),
-      0,
-    );
+    const expectedCompletions = activeEnrollments
+      .filter((enrollment) => enrollment.can_view_content !== false)
+      .reduce(
+        (total, enrollment) =>
+          total + (lessonsPerCourse.get(enrollment.course_id) ?? 0),
+        0,
+      );
     const completedProgress = progress.filter((item) => {
       if (!item.completed) return false;
       const courseId = lessonCourseId.get(item.lesson_id);
@@ -176,10 +191,47 @@ export class AdminDashboardService {
           email: profile.email,
           fullName: profile.full_name,
           title: profile.title,
+          bio: profile.bio || '',
+          linkedin: profile.linkedin || '',
+          website: profile.website || '',
           company: profile.company,
           avatarUrl: profile.avatar_url,
           createdAt: profile.created_at,
         })),
+      courses: courses.map((course) => {
+        const mentor = course.docente_id
+          ? profileById.get(course.docente_id)
+          : null;
+        const courseModules = modules.filter(
+          (module) => module.course_id === course.id,
+        );
+        const moduleIds = new Set(courseModules.map((module) => module.id));
+        const courseLessons = lessons.filter((lesson) =>
+          moduleIds.has(lesson.module_id),
+        );
+        return {
+          id: course.id,
+          title: course.title,
+          description: course.description || '',
+          docenteId: course.docente_id || null,
+          contentType: course.content_type || 'course',
+          category: course.category || '',
+          level: course.level || '',
+          createdAt: course.created_at,
+          mentorName: mentor?.full_name || 'Por asignar',
+          mentorTitle: mentor?.title || '',
+          mentorAvatar: mentor?.avatar_url || '',
+          totalModulesCount: courseModules.length,
+          totalLessonsCount: courseLessons.length,
+          estimatedMinutes: courseLessons.reduce(
+            (total, lesson) => total + (lesson.duration_minutes || 0),
+            0,
+          ),
+          activeStudents: activeEnrollments.filter(
+            (enrollment) => enrollment.course_id === course.id,
+          ).length,
+        };
+      }),
       recentActivity,
     };
   }
@@ -189,7 +241,7 @@ export class AdminDashboardService {
       .schema('iam')
       .from('profiles')
       .select(
-        'id, email, full_name, role, title, company, avatar_url, created_at',
+        'id, email, full_name, role, title, company, avatar_url, bio, linkedin, website, created_at',
       );
     if (error) throw new BadRequestException(error.message);
     return (data ?? []) as ProfileRow[];
@@ -199,7 +251,9 @@ export class AdminDashboardService {
     const { data, error } = await this.supabase.client
       .schema('courses')
       .from('courses')
-      .select('id, title');
+      .select(
+        'id, title, description, docente_id, content_type, category, level, created_at',
+      );
     if (error) throw new BadRequestException(error.message);
     return (data ?? []) as CourseRow[];
   }
@@ -207,8 +261,8 @@ export class AdminDashboardService {
   private async loadEnrollments(): Promise<EnrollmentRow[]> {
     const { data, error } = await this.supabase.client
       .schema('courses')
-      .from('enrollments')
-      .select('course_id, student_id, status');
+      .from('active_enrollments')
+      .select('course_id, student_id, status, can_view_content');
     if (error) throw new BadRequestException(error.message);
     return (data ?? []) as EnrollmentRow[];
   }
@@ -229,7 +283,7 @@ export class AdminDashboardService {
     const { data, error } = await this.supabase.client
       .schema('courses')
       .from('lessons')
-      .select('id, module_id, title')
+      .select('id, module_id, title, duration_minutes')
       .in('module_id', moduleIds)
       .eq('is_published', true);
     if (error) throw new BadRequestException(error.message);

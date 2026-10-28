@@ -20,6 +20,7 @@ interface LiveSessionRow {
   created_at: string;
   scheduled_at: string;
   duration_minutes: number;
+  join_url?: string | null;
 }
 
 export interface LiveSession {
@@ -33,6 +34,7 @@ export interface LiveSession {
   createdAt: string;
   scheduledAt: string;
   durationMinutes: number;
+  joinUrl?: string | null;
 }
 
 @Injectable()
@@ -49,6 +51,7 @@ export class LiveSessionsService {
       title: string;
       scheduledAt: string;
       durationMinutes: number;
+      joinUrl?: string | null;
     },
   ): Promise<LiveSession> {
     await this.assertCanManageCourse(user, input.courseId);
@@ -65,6 +68,7 @@ export class LiveSessionsService {
         started_by: user.id,
         scheduled_at: input.scheduledAt,
         duration_minutes: input.durationMinutes,
+        join_url: input.joinUrl || null,
       })
       .select('*')
       .single();
@@ -96,7 +100,7 @@ export class LiveSessionsService {
     const courseIds =
       user.role === 'mentor'
         ? await this.courses.courseIdsForDocente(user.id)
-        : await this.courses.courseIdsForStudent(user.id);
+        : await this.courses.courseIdsForStudent(user.id, 'can_join_live');
     if (!courseIds.length) return [];
 
     const { data, error } = await query
@@ -110,6 +114,27 @@ export class LiveSessionsService {
     const row = await this.getRowOrFail(id);
     await this.assertCanView(user, row);
     return this.mapSession(row);
+  }
+
+  async updateJoinLink(
+    user: AuthenticatedUser,
+    id: string,
+    joinUrl: string | null,
+  ): Promise<LiveSession> {
+    const row = await this.getRowOrFail(id);
+    await this.assertCanManageCourse(user, row.course_id);
+    const { data, error } = await this.supabase.client
+      .schema('video')
+      .from('live_sessions')
+      .update({ join_url: joinUrl })
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error || !data)
+      throw new BadRequestException(
+        error?.message || 'No se pudo guardar el enlace',
+      );
+    return this.mapSession(data as LiveSessionRow);
   }
 
   async end(user: AuthenticatedUser, id: string): Promise<LiveSession> {
@@ -156,7 +181,7 @@ export class LiveSessionsService {
     }
     if (user.role !== 'estudiante')
       throw new ForbiddenException('Academic access required');
-    const enrolled = await this.courses.isEnrolled(row.course_id, user.id);
+    const enrolled = await this.courses.isEnrolled(row.course_id, user.id, 'can_join_live');
     if (!enrolled) {
       throw new ForbiddenException('You are not enrolled in this course');
     }
@@ -187,6 +212,7 @@ export class LiveSessionsService {
       createdAt: row.created_at,
       scheduledAt: row.scheduled_at,
       durationMinutes: row.duration_minutes,
+      joinUrl: row.join_url || null,
     };
   }
 }

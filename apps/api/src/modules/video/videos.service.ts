@@ -17,6 +17,7 @@ const DEFAULT_RETENTION_DAYS = 180;
 interface VideoRow {
   id: string;
   course_id: string;
+  live_session_id?: string | null;
   title: string;
   description: string;
   storage_path: string;
@@ -33,6 +34,7 @@ interface VideoRow {
 export interface Video {
   id: string;
   courseId: string;
+  liveSessionId?: string | null;
   title: string;
   description: string;
   mimeType: string;
@@ -55,6 +57,7 @@ export class VideosService {
   async create(
     user: AuthenticatedUser,
     input: {
+      liveSessionId?: string;
       courseId: string;
       title: string;
       description?: string;
@@ -64,6 +67,18 @@ export class VideosService {
     },
   ) {
     await this.assertCanManageCourse(user, input.courseId);
+    if (input.liveSessionId) {
+      const { data, error } = await this.supabase.client
+        .schema('video')
+        .from('live_sessions')
+        .select('course_id')
+        .eq('id', input.liveSessionId)
+        .maybeSingle();
+      if (error || !data || data.course_id !== input.courseId)
+        throw new BadRequestException(
+          'La clase debe pertenecer al curso seleccionado',
+        );
+    }
 
     const id = randomUUID();
     const storagePath = `${input.courseId}/${id}`;
@@ -75,6 +90,7 @@ export class VideosService {
       .insert({
         id,
         course_id: input.courseId,
+        live_session_id: input.liveSessionId || null,
         title: input.title,
         description: input.description ?? '',
         storage_path: storagePath,
@@ -170,7 +186,7 @@ export class VideosService {
       return (data as VideoRow[]).map((row) => this.mapVideo(row));
     }
 
-    courseIds = await this.courses.courseIdsForStudent(user.id);
+    courseIds = await this.courses.courseIdsForStudent(user.id, 'can_view_recordings');
     if (!courseIds.length) return [];
     const { data, error } = await query
       .in('course_id', courseIds)
@@ -265,7 +281,7 @@ export class VideosService {
     }
     if (user.role !== 'estudiante')
       throw new ForbiddenException('Academic access required');
-    const enrolled = await this.courses.isEnrolled(row.course_id, user.id);
+    const enrolled = await this.courses.isEnrolled(row.course_id, user.id, 'can_view_recordings');
     if (!enrolled) {
       throw new ForbiddenException('You are not enrolled in this course');
     }
@@ -316,6 +332,7 @@ export class VideosService {
     return {
       id: row.id,
       courseId: row.course_id,
+      liveSessionId: row.live_session_id || null,
       title: row.title,
       description: row.description,
       mimeType: row.mime_type,

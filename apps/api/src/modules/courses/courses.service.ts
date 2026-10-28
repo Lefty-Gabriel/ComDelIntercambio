@@ -11,6 +11,9 @@ export interface Course {
   id: string;
   title: string;
   description: string;
+  contentType?: string;
+  category?: string;
+  level?: string;
   createdBy: string | null;
   docenteId: string | null;
   createdAt: string;
@@ -20,6 +23,9 @@ interface CourseRow {
   id: string;
   title: string;
   description: string;
+  content_type?: string;
+  category?: string;
+  level?: string;
   created_by: string | null;
   docente_id: string | null;
   created_at: string;
@@ -30,17 +36,39 @@ export class CoursesService {
   constructor(private readonly supabase: SupabaseService) {}
 
   async create(
-    input: { title: string; description?: string },
+    input: {
+      title: string;
+      description?: string;
+      contentType?: 'course' | 'masterclass' | 'workshop';
+      docenteId?: string;
+      category?: string;
+      level?: string;
+    },
     user: AuthenticatedUser,
   ): Promise<Course> {
     if (user.role !== 'admin')
       throw new ForbiddenException('Administrator access required');
+    if (input.docenteId) {
+      const { data: mentor, error } = await this.supabase.client
+        .schema('iam')
+        .from('profiles')
+        .select('role')
+        .eq('id', input.docenteId)
+        .maybeSingle();
+      if (error) throw new BadRequestException(error.message);
+      if (!mentor || mentor.role !== 'mentor')
+        throw new BadRequestException('Selecciona una cuenta de mentor');
+    }
     const { data, error } = await this.supabase.client
       .schema('courses')
       .from('courses')
       .insert({
-        title: input.title,
+        title: input.title.trim(),
+        category: input.category?.trim() || '',
+        level: input.level?.trim() || '',
         description: input.description ?? '',
+        content_type: input.contentType || 'course',
+        docente_id: input.docenteId || null,
         created_by: user.id,
       })
       .select('*')
@@ -81,9 +109,9 @@ export class CoursesService {
 
     const { data, error } = await this.supabase.client
       .schema('courses')
-      .from('enrollments')
+      .from('active_enrollments')
       .select(
-        'course:courses(id, title, description, created_by, docente_id, created_at)',
+        'course:courses(id, title, description, content_type, category, level, created_by, docente_id, created_at)',
       )
       .eq('student_id', user.id);
 
@@ -93,14 +121,83 @@ export class CoursesService {
     );
   }
 
+  async assertCanManageCourse(courseId: string, user: AuthenticatedUser) {
+    if (user.role === 'admin') return;
+    if (
+      user.role === 'mentor' &&
+      (await this.getCourseDocenteId(courseId)) === user.id
+    )
+      return;
+    throw new ForbiddenException(
+      'Solo puedes matricular en los cursos que impartes',
+    );
+  }
+
+  async enrollByEmail(
+    courseId: string,
+    email: string,
+    user: AuthenticatedUser,
+  ) {
+    await this.assertCanManageCourse(courseId, user);
+    const { data, error } = await this.supabase.client
+      .schema('iam')
+      .from('profiles')
+      .select('id')
+      .eq('email', email.trim().toLowerCase())
+      .eq('role', 'estudiante')
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data)
+      throw new NotFoundException(
+        'No existe un estudiante registrado con ese correo',
+      );
+    return this.enroll(courseId, data.id, user);
+  }
+
   async enroll(courseId: string, studentId: string, user: AuthenticatedUser) {
-    if (user.role !== 'admin')
-      throw new ForbiddenException('Administrator access required');
+    await this.assertCanManageCourse(courseId, user);
+    const { data: profile, error: profileError } = await this.supabase.client
+      .schema('iam')
+      .from('profiles')
+      .select('id, role')
+      .eq('id', studentId)
+      .maybeSingle();
+    if (profileError) throw new BadRequestException(profileError.message);
+    if (!profile || profile.role !== 'estudiante')
+      throw new BadRequestException(
+        'Solo se pueden matricular cuentas de estudiante',
+      );
+    const { data: existing, error: existingError } = await this.supabase.client
+      .schema('courses')
+      .from('enrollments')
+      .select(
+        'id,course_id,student_id,status,access_type,expires_at,created_at',
+      )
+      .eq('course_id', courseId)
+      .eq('student_id', studentId)
+      .maybeSingle();
+    if (existingError) throw new BadRequestException(existingError.message);
+    if (existing?.course_id) {
+      if (
+        existing.status !== 'active' ||
+        (existing.expires_at &&
+          new Date(existing.expires_at).getTime() <= Date.now())
+      )
+        throw new ForbiddenException(
+          'El acceso esta suspendido o vencido. Administracion debe revisarlo en Accesos por programa.',
+        );
+      return existing;
+    }
     const { data, error } = await this.supabase.client
       .schema('courses')
       .from('enrollments')
       .upsert(
-        { course_id: courseId, student_id: studentId, granted_by: user.id },
+        {
+          course_id: courseId,
+          student_id: studentId,
+          granted_by: user.id,
+          status: 'active',
+        },
         { onConflict: 'course_id,student_id' },
       )
       .select('id, course_id, student_id, status, created_at')
@@ -184,15 +281,19 @@ export class CoursesService {
     return this.mapCourse(data as CourseRow);
   }
 
-  async isEnrolled(courseId: string, studentId: string): Promise<boolean> {
-    const { data, error } = await this.supabase.client
+  async isEnrolled(
+    courseId: string,
+    studentId: string,
+    capability?: 'can_view_content' | 'can_join_live' | 'can_view_recordings',
+  ): Promise<boolean> {
+    let query = this.supabase.client
       .schema('courses')
-      .from('enrollments')
+      .from('active_enrollments')
       .select('id')
       .eq('course_id', courseId)
-      .eq('student_id', studentId)
-      .eq('status', 'active')
-      .maybeSingle();
+      .eq('student_id', studentId);
+    if (capability) query = query.eq(capability, true);
+    const { data, error } = await query.maybeSingle();
 
     if (error) throw new BadRequestException(error.message);
     return data !== null;
@@ -209,16 +310,19 @@ export class CoursesService {
     return (data as { id: string }[]).map((row) => row.id);
   }
 
-  async courseIdsForStudent(studentId: string): Promise<string[]> {
-    const { data, error } = await this.supabase.client
+  async courseIdsForStudent(
+    studentId: string,
+    capability?: 'can_view_content' | 'can_join_live' | 'can_view_recordings',
+  ): Promise<string[]> {
+    let query = this.supabase.client
       .schema('courses')
-      .from('enrollments')
+      .from('active_enrollments')
       .select('course_id')
-      .eq('student_id', studentId)
-      .eq('status', 'active');
-
+      .eq('student_id', studentId);
+    if (capability) query = query.eq(capability, true);
+    const { data, error } = await query;
     if (error) throw new BadRequestException(error.message);
-    return (data as { course_id: string }[]).map((row) => row.course_id);
+    return (data || []).map((row) => row.course_id);
   }
 
   private mapCourse(row: CourseRow): Course {
@@ -226,6 +330,9 @@ export class CoursesService {
       id: row.id,
       title: row.title,
       description: row.description,
+      contentType: row.content_type || 'course',
+      category: row.category || '',
+      level: row.level || '',
       createdBy: row.created_by,
       docenteId: row.docente_id,
       createdAt: row.created_at,

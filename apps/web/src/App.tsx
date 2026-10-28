@@ -61,8 +61,8 @@ export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
 
   // Login form state
-  const [loginEmail, setLoginEmail] = useState('admin@traction.test');
-  const [loginPassword, setLoginPassword] = useState('Admin1234!');
+  const [loginEmail, setLoginEmail] = useState('admin@gmail.com');
+  const [loginPassword, setLoginPassword] = useState('admin1234.');
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -427,14 +427,14 @@ export default function App() {
           <div className="quick-creds-box">
             <div className="quick-creds-info">
               <strong>Admin Test Credentials</strong>
-              <span>admin@traction.test / Admin1234!</span>
+              <span>admin@gmail.com / admin1234.</span>
             </div>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => {
-                setLoginEmail('admin@traction.test');
-                setLoginPassword('Admin1234!');
+                setLoginEmail('admin@gmail.com');
+                setLoginPassword('admin1234.');
               }}
             >
               Fill

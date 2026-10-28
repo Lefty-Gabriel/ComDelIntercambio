@@ -135,3 +135,19 @@ Aplicar las migraciones en orden hasta `20261027000200_support_operations_and_re
 El schema solo permite acceso a `service_role` desde la API, con RLS y funciones transaccionales que serializan envio y cierre. Las credenciales nunca se envian al navegador. La interfaz consulta cambios cada tres segundos y cancela las consultas al cambiar de ticket o usuario.
 
 Las clases existentes conservan sus fechas, duracion y estado. Crear una clase requiere `courseId`, `title`, `scheduledAt` (ISO 8601) y `durationMinutes` (15?480). La ruta de ingreso y la integracion de video anterior se retiraron; no hay proveedor de videoconferencia configurado.
+
+## Student workspace: Zoom, resume and recordings
+
+Apply migration 20261028000100_student_resume_zoom.sql before starting the updated API. It adds nullable Zoom links and recording/class associations, course content types (course/masterclass/workshop), and a private per-student/course resume table. Existing classes and completion data are preserved.
+
+POST /live-sessions accepts an optional HTTPS Zoom joinUrl. PATCH /live-sessions/:id/link lets admins and assigned mentors change or clear it. Existing academic access checks also protect reading the links.
+
+GET and PUT /dashboard/student/courses/:courseId/resume read/write the authenticated student's last lesson and positionSeconds. Writes require a published lesson in that course and active enrollment. The service-role client is the only database access path.
+
+POST /courses accepts contentType. POST /videos optionally accepts liveSessionId and verifies that it belongs to the selected course. Recordings are manually uploaded from Zoom through signed Storage URLs and finalized using the existing video API; no LiveKit or Zoom account integration is used.
+
+## Mentor enrollment and real notifications
+
+Mentors can enroll registered student accounts in their assigned courses using POST /courses/:courseId/enrollments or POST /courses/:courseId/enrollments/by-email. Assignment is checked before student lookup, target accounts must have the student role, and an existing enrollment is activated rather than duplicated. Role changes and teaching assignments remain administrator operations. The mentor dashboard includes the actual published course outline. Administrator course creation accepts an optional docenteId and persists the assignment with the course.
+
+Apply migration 20261028000200_notifications.sql for the notification feed and private read records. GET /notifications is scoped to the authenticated profile and its active enrollments or teaching assignments. PATCH /notifications/read only marks visible items for that user. POST /notifications publishes notices/events: administrators can target a course or the academic community; mentors can publish directly to their own courses. The feed includes classes, published lessons/resources and ready videos without sending emails. Published mentor profile data is available to administrators and their enrolled students; private contact fields are not added to the student response.

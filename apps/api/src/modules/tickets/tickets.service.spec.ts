@@ -21,12 +21,76 @@ function setup(
     order: () => query,
     maybeSingle: async () => ({ data: ticket, error: null }),
   };
+  const schema = vi.fn(() => ({ from: () => query, rpc }));
   const service = new TicketsService({
-    client: { schema: () => ({ from: () => query, rpc }) },
+    client: { schema },
   } as any);
-  return { service, rpc };
+  return { service, rpc, schema };
 }
 describe('support ticket conversation access', () => {
+  it.each([
+    { role: 'soporte', fullName: ' Ana López ', expectedName: 'Ana López' },
+    { role: 'soporte', fullName: null, expectedName: null },
+    { role: 'estudiante', fullName: 'Ana López', expectedName: undefined },
+  ])(
+    'includes the student profile name only for assigned support ($role, $fullName)',
+    async ({ role, fullName, expectedName }) => {
+      const messages = [
+        { id: 'one', sender_id: 'student', body: 'Necesito ayuda' },
+        { id: 'two', sender_id: 'agent', body: 'Te ayudo' },
+      ];
+      const query: any = {
+        select: () => query,
+        eq: () => query,
+        order: () => query,
+        maybeSingle: async () => ({
+          data: {
+            id: 'ticket',
+            student_id: 'student',
+            assigned_to: 'agent',
+            status: 'in_progress',
+          },
+          error: null,
+        }),
+        range: async () => ({ data: messages, error: null }),
+      };
+      const profile: any = {
+        select: vi.fn(() => profile),
+        eq: vi.fn(() => profile),
+        maybeSingle: async () => ({
+          data: fullName === null ? null : { full_name: fullName },
+          error: null,
+        }),
+      };
+      const schema = vi.fn((name) => ({
+        from: () => (name === 'iam' ? profile : query),
+      }));
+      const service = new TicketsService({ client: { schema } } as any);
+      const result = await service.messages(
+        actor(role, role === 'soporte' ? 'agent' : 'student'),
+        'ticket',
+      );
+      expect(result[0]).toEqual(
+        role === 'soporte'
+          ? { ...messages[0], sender_name: expectedName }
+          : messages[0],
+      );
+      expect(result[1]).toEqual(messages[1]);
+      if (role === 'soporte') {
+        expect(profile.select).toHaveBeenCalledWith('full_name');
+        expect(profile.eq).toHaveBeenCalledWith('id', 'student');
+      } else {
+        expect(schema).not.toHaveBeenCalledWith('iam');
+      }
+    },
+  );
+  it('denies an unassigned agent before looking up the student name', async () => {
+    const { service, schema } = setup();
+    await expect(
+      service.messages(actor('soporte', 'other'), 'ticket'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(schema).not.toHaveBeenCalledWith('iam');
+  });
   it.each(['messages', 'tickets'])(
     'retrieves %s beyond the PostgREST 1000-row cap',
     async (table) => {

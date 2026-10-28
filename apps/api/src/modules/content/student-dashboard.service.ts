@@ -12,14 +12,21 @@ const COURSE_RESOURCES_BUCKET = 'course-resources';
 const RESOURCE_URL_TTL_SECONDS = 600;
 
 interface CourseRow {
+  category?: string;
+  level?: string;
   id: string;
   title: string;
   description: string;
+  content_type?: string;
   docente_id: string | null;
   created_at: string;
 }
 
 interface EnrollmentRow {
+  access_type?: string;
+  expires_at?: string | null;
+  can_view_content?: boolean;
+  can_join_live?: boolean;
   course: CourseRow | CourseRow[] | null;
 }
 
@@ -88,6 +95,10 @@ interface StudentQuestionRow {
 }
 
 interface ProfileRow {
+  company?: string;
+  bio?: string;
+  linkedin?: string;
+  website?: string;
   id: string;
   full_name: string;
   title: string;
@@ -124,8 +135,10 @@ export class StudentDashboardService {
 
     const { data, error } = await this.supabase.client
       .schema('courses')
-      .from('enrollments')
-      .select('course:courses(id, title, description, docente_id, created_at)')
+      .from('active_enrollments')
+      .select(
+        'access_type, expires_at, can_view_content, can_join_live, course:courses(id, title, description, content_type, category, level, docente_id, created_at)',
+      )
       .eq('student_id', user.id)
       .eq('status', 'active');
 
@@ -136,12 +149,25 @@ export class StudentDashboardService {
       .filter((course): course is CourseRow => Boolean(course))
       .sort((left, right) => right.created_at.localeCompare(left.created_at));
     const courseIds = courseRows.map((course) => course.id);
+    const accessRows = (data || []) as unknown as EnrollmentRow[];
+    const accessByCourse = new Map(
+      accessRows.map((row) => {
+        const course = Array.isArray(row.course) ? row.course[0] : row.course;
+        return [course?.id, row];
+      }),
+    );
+    const contentCourseIds = courseIds.filter(
+      (id) => accessByCourse.get(id)?.can_view_content !== false,
+    );
+    const liveCourseIds = courseIds.filter(
+      (id) => accessByCourse.get(id)?.can_join_live !== false,
+    );
 
     const [moduleRows, mentorRows, upcomingClasses, announcements] =
       await Promise.all([
-        this.loadModules(courseIds),
+        this.loadModules(contentCourseIds),
         this.loadMentors(courseRows),
-        this.loadUpcomingClasses(courseIds, courseRows),
+        this.loadUpcomingClasses(liveCourseIds, courseRows),
         this.loadAnnouncements(courseIds, courseRows),
       ]);
 
@@ -257,6 +283,11 @@ export class StudentDashboardService {
         id: course.id,
         title: course.title,
         description: course.description,
+        contentType: course.content_type || 'course',
+        category: course.category || '',
+        level: course.level || '',
+        accessType: accessByCourse.get(course.id)?.access_type || 'full',
+        accessExpiresAt: accessByCourse.get(course.id)?.expires_at || null,
         docenteId: course.docente_id,
         mentorName: mentor?.full_name || 'Mentor por asignar',
         mentorTitle: mentor?.title || 'Mentor del programa',
@@ -300,6 +331,9 @@ export class StudentDashboardService {
         course.completedLessonsCount === course.totalLessonsCount,
     ).length;
 
+    const learningCourses = courses.filter(
+      (course) => course.accessType !== 'live',
+    );
     return {
       stats: {
         enrolledCourses: courses.length,
@@ -311,22 +345,74 @@ export class StudentDashboardService {
         completedLessons,
         totalLessons,
         totalMinutesLearned,
-        averageProgress: courses.length
+        averageProgress: learningCourses.length
           ? Math.round(
-              courses.reduce(
+              learningCourses.reduce(
                 (total, course) => total + course.progressPercent,
                 0,
-              ) / courses.length,
+              ) / learningCourses.length,
             )
           : 0,
         upcomingClasses: upcomingClasses.length,
       },
       courses,
       upcomingClasses,
+      mentors: mentorRows.map((mentor) => ({
+        id: mentor.id,
+        fullName: mentor.full_name,
+        title: mentor.title,
+        avatarUrl: mentor.avatar_url,
+        company: mentor.company || '',
+        bio: mentor.bio || '',
+        linkedin: mentor.linkedin || '',
+        website: mentor.website || '',
+      })),
       announcements,
     };
   }
 
+  async getResume(user: AuthenticatedUser, courseId: string) {
+    this.assertStudent(user);
+    if (!(await this.courses.isEnrolled(courseId, user.id, 'can_view_content')))
+      throw new ForbiddenException('No tienes matricula en este curso');
+    const { data, error } = await this.supabase.client
+      .schema('courses')
+      .from('student_resume')
+      .select('lesson_id, position_seconds')
+      .eq('student_id', user.id)
+      .eq('course_id', courseId)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    return data
+      ? { lessonId: data.lesson_id, positionSeconds: data.position_seconds }
+      : null;
+  }
+  async saveResume(
+    user: AuthenticatedUser,
+    courseId: string,
+    lessonId: string,
+    positionSeconds: number,
+  ) {
+    this.assertStudent(user);
+    await this.assertStudentLessonAccess(user, lessonId);
+    if ((await this.getPublishedLessonCourseId(lessonId)) !== courseId)
+      throw new ForbiddenException('La leccion no pertenece al curso');
+    const { error } = await this.supabase.client
+      .schema('courses')
+      .from('student_resume')
+      .upsert(
+        {
+          student_id: user.id,
+          course_id: courseId,
+          lesson_id: lessonId,
+          position_seconds: positionSeconds,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'student_id,course_id' },
+      );
+    if (error) throw new BadRequestException(error.message);
+    return { lessonId, positionSeconds };
+  }
   async updateLessonProgress(
     user: AuthenticatedUser,
     lessonId: string,
@@ -458,7 +544,11 @@ export class StudentDashboardService {
       'id' | 'lesson_id' | 'title' | 'storage_path' | 'external_url'
     >;
     const courseId = await this.getPublishedLessonCourseId(resource.lesson_id);
-    const enrolled = await this.courses.isEnrolled(courseId, user.id);
+    const enrolled = await this.courses.isEnrolled(
+      courseId,
+      user.id,
+      'can_view_content',
+    );
     if (!enrolled) {
       throw new ForbiddenException('You are not enrolled in this course');
     }
@@ -513,7 +603,11 @@ export class StudentDashboardService {
     lessonId: string,
   ): Promise<string> {
     const courseId = await this.getPublishedLessonCourseId(lessonId);
-    const enrolled = await this.courses.isEnrolled(courseId, user.id);
+    const enrolled = await this.courses.isEnrolled(
+      courseId,
+      user.id,
+      'can_view_content',
+    );
     if (!enrolled) {
       throw new ForbiddenException('You are not enrolled in this course');
     }
@@ -652,7 +746,9 @@ export class StudentDashboardService {
     const { data, error } = await this.supabase.client
       .schema('iam')
       .from('profiles')
-      .select('id, full_name, title, avatar_url')
+      .select(
+        'id, full_name, title, avatar_url, company, bio, linkedin, website',
+      )
       .in('id', mentorIds);
     if (error) throw new BadRequestException(error.message);
     return (data ?? []) as ProfileRow[];

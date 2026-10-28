@@ -48,3 +48,24 @@ describe('provider-free session scheduling', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
+
+describe('Zoom link updates', () => {
+  it('denies changes by a mentor assigned to another course', async () => {
+    const update = vi.fn();
+    const service = new LiveSessionsService(
+      { client: { schema: () => ({ from: () => ({ update }) }) } } as any,
+      { getCourseDocenteId: async () => 'other-mentor' } as any,
+    );
+    vi.spyOn(service as any, 'getRowOrFail').mockResolvedValue({
+      course_id: 'course',
+    });
+    await expect(
+      service.updateJoinLink(
+        actor('mentor'),
+        'session',
+        'https://zoom.us/j/123',
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(update).not.toHaveBeenCalled();
+  });
+});

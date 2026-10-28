@@ -22,9 +22,11 @@ const row = {
   docente_id: 'person',
   title: 'Lesson',
   status: 'ready',
+  role: 'estudiante',
   course: { id: 'course', title: 'Course' },
 };
 function persistence() {
+  let activeTable = '';
   const query: any = {
     // Supabase query builders intentionally implement the PromiseLike contract.
     // eslint-disable-next-line unicorn/no-thenable
@@ -40,8 +42,21 @@ function persistence() {
     'upsert',
   ])
     query[key] = () => query;
-  query.maybeSingle = query.single = async () => ({ data: row, error: null });
-  return { client: { schema: () => ({ from: () => query }) } } as any;
+  query.single = async () => ({ data: row, error: null });
+  query.maybeSingle = async () => ({
+    data: activeTable === 'enrollments' ? null : row,
+    error: null,
+  });
+  return {
+    client: {
+      schema: () => ({
+        from: (table: string) => {
+          activeTable = table;
+          return query;
+        },
+      }),
+    },
+  } as any;
 }
 
 describe('four-role authorization', () => {
@@ -141,11 +156,14 @@ describe('four-role authorization', () => {
       ];
       const tables: Record<string, any[]> = {
         'courses.courses': courseRows,
-        'courses.enrollments': [
+        'courses.active_enrollments': [
           {
             student_id: 'person',
             course_id: 'enrolled',
             status: 'active',
+            can_view_content: true,
+            can_join_live: true,
+            can_view_recordings: true,
             course: courseRows[1],
           },
           {
@@ -222,7 +240,13 @@ describe('four-role authorization', () => {
       () => videos.complete(actor, 'item', {}),
       () => videos.playback(actor, 'item'),
       () => videos.remove(actor, 'item'),
-      () => sessions.create(actor, { courseId: 'course', title: 'Lesson', scheduledAt: '2026-11-01T12:00:00Z', durationMinutes: 60 }),
+      () =>
+        sessions.create(actor, {
+          courseId: 'course',
+          title: 'Lesson',
+          scheduledAt: '2026-11-01T12:00:00Z',
+          durationMinutes: 60,
+        }),
       () => sessions.end(actor, 'item'),
     ])
       await expect(operation()).rejects.toBeInstanceOf(ForbiddenException);
@@ -234,9 +258,14 @@ describe('four-role authorization', () => {
       await expect(
         service.create({ title: 'Lesson' }, user(role)),
       ).rejects.toBeInstanceOf(ForbiddenException);
-      await expect(
-        service.enroll('course', 'target', user(role)),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      if (role !== 'mentor')
+        await expect(
+          service.enroll('course', 'target', user(role)),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      else
+        expect((await service.enroll('course', 'target', user(role))).id).toBe(
+          'item',
+        );
       await expect(
         service.assignDocente('course', 'target', user(role)),
       ).rejects.toBeInstanceOf(ForbiddenException);

@@ -1,3 +1,4 @@
+import { AdministrationModule } from './modules/administration/administration.module.js';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -26,6 +27,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     SupabaseModule,
     AuthModule,
     UsersModule,
+    AdministrationModule,
     CoursesModule,
     ContentModule,
     VideoModule,

@@ -1,6 +1,17 @@
-import { IsInt, IsOptional, IsString, IsUUID, Min, MinLength } from 'class-validator';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 export class CreateVideoDto {
+  @IsOptional()
+  @IsUUID()
+  liveSessionId?: string;
+
   @IsUUID()
   courseId!: string;
 

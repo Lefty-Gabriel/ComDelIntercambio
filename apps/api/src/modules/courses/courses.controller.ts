@@ -1,3 +1,4 @@
+import { EnrollByEmailDto } from './dto/enroll-by-email.dto.js';
 import {
   Body,
   Controller,
@@ -44,13 +45,23 @@ export class CoursesController {
   }
 
   @Post(':courseId/enrollments')
-  @Roles('admin')
+  @Roles('admin', 'mentor')
   enroll(
     @Param('courseId') courseId: string,
     @Body() dto: EnrollDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.courses.enroll(courseId, dto.studentId, user);
+  }
+
+  @Post(':courseId/enrollments/by-email')
+  @Roles('admin', 'mentor')
+  enrollByEmail(
+    @Param('courseId') courseId: string,
+    @Body() dto: EnrollByEmailDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.courses.enrollByEmail(courseId, dto.email, user);
   }
 
   @Get(':courseId/enrollments')

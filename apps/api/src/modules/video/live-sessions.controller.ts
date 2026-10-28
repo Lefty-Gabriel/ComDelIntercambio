@@ -1,3 +1,4 @@
+import { UpdateJoinLinkDto } from './dto/update-join-link.dto.js';
 import {
   Body,
   Controller,
@@ -5,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -30,6 +32,16 @@ export class LiveSessionsController {
     return this.sessions.create(user, dto);
   }
 
+  @Patch(':id/link')
+  @Roles('admin', 'mentor')
+  updateLink(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateJoinLinkDto,
+  ) {
+    return this.sessions.updateJoinLink(user, id, dto.joinUrl || null);
+  }
+
   @Get()
   list(@CurrentUser() user: AuthenticatedUser) {
     return this.sessions.list(user);
@@ -40,7 +52,7 @@ export class LiveSessionsController {
     return this.sessions.getById(user, id);
   }
 
- @Post(':id/end')
+  @Post(':id/end')
   @Roles('admin', 'mentor')
   @HttpCode(HttpStatus.OK)
   end(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {

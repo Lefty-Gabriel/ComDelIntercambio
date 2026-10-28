@@ -76,7 +76,7 @@ export class TicketsService {
     const ticket = await this.ticket(user, id);
     this.assertParticipant(user, ticket);
     if (ticket.status === 'closed') return [];
-    return this.allPages((from, to) =>
+    const messages = await this.allPages((from, to) =>
       this.db
         .from('messages')
         .select('*')
@@ -84,6 +84,23 @@ export class TicketsService {
         .order('created_at', { ascending: true })
         .order('id', { ascending: true })
         .range(from, to),
+    );
+    if (
+      user.role !== 'soporte' ||
+      !messages.some((message) => message.sender_id === ticket.student_id)
+    )
+      return messages;
+    const { data: student, error } = await this.supabase.client
+      .schema('iam')
+      .from('profiles')
+      .select('full_name')
+      .eq('id', ticket.student_id)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    return messages.map((message) =>
+      message.sender_id === ticket.student_id
+        ? { ...message, sender_name: student?.full_name?.trim() || null }
+        : message,
     );
   }
 

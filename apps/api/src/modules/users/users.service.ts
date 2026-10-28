@@ -65,10 +65,18 @@ export class UsersService {
         'id, email, full_name, role, title, company, phone, location, linkedin, website, bio, avatar_url, created_at',
       )
       .single();
-    if (profileError || !profile)
+    if (profileError || !profile) {
+      const cleanup = await this.supabase.client.auth.admin.deleteUser(
+        data.user.id,
+      );
+      if (cleanup.error)
+        throw new BadRequestException(
+          'No se pudo completar el perfil. Revisa la cuenta creada antes de reintentar.',
+        );
       throw new BadRequestException(
         profileError?.message ?? 'Could not create profile',
       );
+    }
     return this.mapProfile(profile as ProfileRow);
   }
 
@@ -79,6 +87,10 @@ export class UsersService {
   ): Promise<AuthenticatedUser> {
     if (user.role !== 'admin')
       throw new ForbiddenException('Administrator access required');
+    if (id === user.id && role !== 'admin')
+      throw new ForbiddenException(
+        'No puedes retirar tu propio acceso administrativo',
+      );
     if (!ROLES.includes(role)) throw new BadRequestException('Invalid role');
     const { data, error } = await this.supabase.client
       .schema('iam')

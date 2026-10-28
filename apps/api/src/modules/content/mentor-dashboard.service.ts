@@ -9,6 +9,8 @@ import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { CoursesService } from '../courses/courses.service.js';
 
 interface EnrollmentRow {
+  can_view_content?: boolean;
+  access_type?: string;
   course_id: string;
   student_id: string;
   status: string;
@@ -24,11 +26,17 @@ interface ProfileRow {
 }
 
 interface ModuleRow {
+  title: string;
+  position: number;
   id: string;
   course_id: string;
 }
 
 interface LessonRow {
+  position: number;
+  summary: string;
+  content_text: string;
+  video_id: string | null;
   id: string;
   module_id: string;
   title: string;
@@ -123,7 +131,9 @@ export class MentorDashboardService {
       ]),
     );
     const activeEnrollmentKeys = new Set(
-      activeEnrollments.map((item) => `${item.student_id}:${item.course_id}`),
+      activeEnrollments
+        .filter((item) => item.can_view_content !== false)
+        .map((item) => `${item.student_id}:${item.course_id}`),
     );
     const validProgress = progress.filter((item) => {
       const courseId = lessonCourseId.get(item.lesson_id);
@@ -155,9 +165,12 @@ export class MentorDashboardService {
     const courseSummaries = assignedCourses.map((course) => {
       const courseLessons = lessonsByCourse.get(course.id) ?? [];
       const courseEnrollments = enrollmentsByCourse.get(course.id) ?? [];
-      const expected = courseLessons.length * courseEnrollments.length;
+      const learningEnrollments = courseEnrollments.filter(
+        (enrollment) => enrollment.can_view_content !== false,
+      );
+      const expected = courseLessons.length * learningEnrollments.length;
       let completed = 0;
-      for (const enrollment of courseEnrollments) {
+      for (const enrollment of learningEnrollments) {
         for (const lesson of courseLessons) {
           if (completedKeys.has(`${enrollment.student_id}:${lesson.id}`)) {
             completed += 1;
@@ -166,11 +179,32 @@ export class MentorDashboardService {
       }
       return {
         ...course,
+        mentorName: user.fullName,
+        mentorTitle: user.title || 'Mentor',
+        mentorAvatar: user.avatarUrl || '',
+        modules: modules
+          .filter((module) => module.course_id === course.id)
+          .sort((a, b) => a.position - b.position)
+          .map((module) => ({
+            id: module.id,
+            title: module.title,
+            lessons: lessons
+              .filter((lesson) => lesson.module_id === module.id)
+              .sort((a, b) => a.position - b.position)
+              .map((lesson) => ({
+                id: lesson.id,
+                title: lesson.title,
+                summary: lesson.summary,
+                content: lesson.content_text,
+                videoId: lesson.video_id,
+              })),
+          })),
         totalModulesCount: modules.filter(
           (courseModule) => courseModule.course_id === course.id,
         ).length,
         totalLessonsCount: courseLessons.length,
         activeStudents: courseEnrollments.length,
+        learningStudents: learningEnrollments.length,
         averageProgress: expected
           ? Math.round((completed / expected) * 100)
           : 0,
@@ -238,7 +272,7 @@ export class MentorDashboardService {
     const completedProgress = validProgress.filter((item) => item.completed);
     const expectedCompletions = courseSummaries.reduce(
       (total, course) =>
-        total + course.totalLessonsCount * course.activeStudents,
+        total + course.totalLessonsCount * course.learningStudents,
       0,
     );
     const now = Date.now();
@@ -367,8 +401,10 @@ export class MentorDashboardService {
   private async loadEnrollments(courseIds: string[]): Promise<EnrollmentRow[]> {
     const { data, error } = await this.supabase.client
       .schema('courses')
-      .from('enrollments')
-      .select('course_id, student_id, status, created_at')
+      .from('active_enrollments')
+      .select(
+        'course_id, student_id, status, created_at, can_view_content, access_type',
+      )
       .in('course_id', courseIds);
     if (error) throw new BadRequestException(error.message);
     return (data ?? []) as EnrollmentRow[];
@@ -389,7 +425,7 @@ export class MentorDashboardService {
     const { data, error } = await this.supabase.client
       .schema('courses')
       .from('course_modules')
-      .select('id, course_id')
+      .select('id, course_id, title, position')
       .in('course_id', courseIds);
     if (error) throw new BadRequestException(error.message);
     return (data ?? []) as ModuleRow[];
@@ -400,7 +436,7 @@ export class MentorDashboardService {
     const { data, error } = await this.supabase.client
       .schema('courses')
       .from('lessons')
-      .select('id, module_id, title')
+      .select('id, module_id, title, position, summary, content_text, video_id')
       .in('module_id', moduleIds)
       .eq('is_published', true);
     if (error) throw new BadRequestException(error.message);

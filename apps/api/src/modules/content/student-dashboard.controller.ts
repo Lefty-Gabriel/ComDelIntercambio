@@ -1,3 +1,4 @@
+import { SaveResumeDto } from './dto/save-resume.dto.js';
 import {
   Body,
   Controller,
@@ -31,6 +32,26 @@ export class StudentDashboardController {
     return this.dashboard.getDashboard(user);
   }
 
+  @Get('courses/:courseId/resume')
+  getResume(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('courseId') courseId: string,
+  ) {
+    return this.dashboard.getResume(user, courseId);
+  }
+  @Put('courses/:courseId/resume')
+  saveResume(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('courseId') courseId: string,
+    @Body() dto: SaveResumeDto,
+  ) {
+    return this.dashboard.saveResume(
+      user,
+      courseId,
+      dto.lessonId,
+      dto.positionSeconds,
+    );
+  }
   @Get('resources/:resourceId/access')
   getResourceAccess(
     @CurrentUser() user: AuthenticatedUser,
