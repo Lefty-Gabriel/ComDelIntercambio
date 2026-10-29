@@ -134,6 +134,21 @@ export class TicketsService {
     this.assertParticipant(user, ticket);
     return this.rpc('close_ticket', { p_ticket_id: id, p_actor_id: user.id });
   }
+  async remove(user: AuthenticatedUser, id: string) {
+    if (user.role !== 'soporte')
+      throw new ForbiddenException('Support access required');
+    const ticket = await this.ticket(user, id);
+    if (ticket.assigned_to && ticket.assigned_to !== user.id)
+      throw new ForbiddenException('This ticket is assigned to another agent');
+    // Keep the ownership check in the deletion itself in case another agent claims it.
+    // Messages are removed atomically by the ticket_id ON DELETE CASCADE foreign key.
+    const { data, error } = await this.db.from('tickets')
+      .delete().eq('id', id)
+      .or(`assigned_to.is.null,assigned_to.eq.${user.id}`)
+      .select('id').maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('Ticket no longer available');
+  }
   private async rpc(name: string, args: Record<string, string>) {
     const { data, error } = await this.db.rpc(name, args);
     if (error) {

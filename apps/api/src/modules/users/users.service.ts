@@ -40,7 +40,26 @@ export class UsersService {
       .order('created_at', { ascending: false });
 
     if (error) throw new BadRequestException(error.message);
-    return (data as ProfileRow[]).map((row) => this.mapProfile(row));
+    const { data: assignments, error: assignmentError } = await this.supabase.client
+      .schema('iam').from('student_mentors').select('student_id, mentor_id');
+    if (assignmentError) throw new BadRequestException(assignmentError.message);
+    const byStudent = new Map((assignments || []).map(row => [row.student_id, row.mentor_id]));
+    return (data as ProfileRow[]).map((row) => ({ ...this.mapProfile(row), mentorId: byStudent.get(row.id) || null }));
+  }
+
+  async assignMentor(studentId: string, mentorId: string, user: AuthenticatedUser) {
+    if (user.role !== 'admin') throw new ForbiddenException('Administrator access required');
+    const { data: profiles, error: profileError } = await this.supabase.client
+      .schema('iam').from('profiles').select('id, role').in('id', [studentId, mentorId]);
+    if (profileError) throw new BadRequestException(profileError.message);
+    if (!profiles?.some(row => row.id === studentId && row.role === 'estudiante') ||
+        !profiles?.some(row => row.id === mentorId && row.role === 'mentor'))
+      throw new BadRequestException('Selecciona un estudiante y un mentor válidos');
+    const { data, error } = await this.supabase.client.schema('iam').from('student_mentors')
+      .upsert({ student_id: studentId, mentor_id: mentorId, assigned_by: user.id, updated_at: new Date().toISOString() }, { onConflict: 'student_id' })
+      .select('student_id, mentor_id').single();
+    if (error) throw new BadRequestException(error.message);
+    return { studentId: data.student_id, mentorId: data.mentor_id };
   }
 
   async create(dto: CreateUserDto): Promise<AuthenticatedUser> {

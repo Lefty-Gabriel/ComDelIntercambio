@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -21,6 +22,12 @@ import { TicketsService } from './tickets.service.js';
 @Roles('estudiante', 'soporte')
 export class TicketsController {
   constructor(private readonly tickets: TicketsService) {}
+  @Delete(':id') @Roles('soporte') @HttpCode(204) remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.tickets.remove(user, id);
+  }
   @Get() list(@CurrentUser() user: AuthenticatedUser) {
     return this.tickets.list(user);
   }

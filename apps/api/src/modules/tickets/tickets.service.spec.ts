@@ -28,6 +28,26 @@ function setup(
   return { service, rpc, schema };
 }
 describe('support ticket conversation access', () => {
+  it('denies deletion by students and other support agents', async () => {
+    await expect(setup().service.remove(actor(), 'ticket')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(setup().service.remove(actor('soporte', 'other'), 'ticket')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+  it.each([null, 'agent'])('deletes available or own closed tickets (%s)', async (assigned_to) => {
+    const query: any = {
+      select: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      or: vi.fn(() => query),
+      delete: vi.fn(() => query),
+      maybeSingle: vi.fn()
+        .mockResolvedValueOnce({ data: { id: 'ticket', assigned_to, status: 'closed' }, error: null })
+        .mockResolvedValueOnce({ data: { id: 'ticket' }, error: null }),
+    };
+    const service = new TicketsService({ client: { schema: () => ({ from: () => query }) } } as any);
+    await service.remove(actor('soporte', 'agent'), 'ticket');
+    expect(query.delete).toHaveBeenCalledOnce();
+    expect(query.eq).toHaveBeenCalledWith('id', 'ticket');
+    expect(query.or).toHaveBeenCalledWith('assigned_to.is.null,assigned_to.eq.agent');
+  });
   it.each([
     { role: 'soporte', fullName: ' Ana López ', expectedName: 'Ana López' },
     { role: 'soporte', fullName: null, expectedName: null },

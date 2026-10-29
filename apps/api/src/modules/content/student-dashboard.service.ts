@@ -163,12 +163,13 @@ export class StudentDashboardService {
       (id) => accessByCourse.get(id)?.can_join_live !== false,
     );
 
-    const [moduleRows, mentorRows, upcomingClasses, announcements] =
+    const [moduleRows, mentorRows, upcomingClasses, announcements, assignedMentors] =
       await Promise.all([
         this.loadModules(contentCourseIds),
         this.loadMentors(courseRows),
         this.loadUpcomingClasses(liveCourseIds, courseRows),
         this.loadAnnouncements(courseIds, courseRows),
+        this.loadAssignedMentor(user.id),
       ]);
 
     const lessonRows = await this.loadLessons(moduleRows);
@@ -357,7 +358,7 @@ export class StudentDashboardService {
       },
       courses,
       upcomingClasses,
-      mentors: mentorRows.map((mentor) => ({
+      mentors: assignedMentors.map((mentor) => ({
         id: mentor.id,
         fullName: mentor.full_name,
         title: mentor.title,
@@ -732,6 +733,18 @@ export class StudentDashboardService {
       .order('created_at', { ascending: false });
     if (error) throw new BadRequestException(error.message);
     return (data ?? []) as StudentQuestionRow[];
+  }
+
+  private async loadAssignedMentor(studentId: string): Promise<ProfileRow[]> {
+    const { data: assignment, error } = await this.supabase.client.schema('iam')
+      .from('student_mentors').select('mentor_id').eq('student_id', studentId).maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!assignment) return [];
+    const { data, error: profileError } = await this.supabase.client.schema('iam')
+      .from('profiles').select('id, full_name, title, avatar_url, company, bio, linkedin, website')
+      .eq('id', assignment.mentor_id).eq('role', 'mentor');
+    if (profileError) throw new BadRequestException(profileError.message);
+    return (data || []) as ProfileRow[];
   }
 
   private async loadMentors(courseRows: CourseRow[]): Promise<ProfileRow[]> {
