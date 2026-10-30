@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
@@ -52,6 +53,13 @@ export class CoursesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.courses.enroll(courseId, dto.studentId, user);
+  }
+
+  @Get(':courseId/enrollment-candidates')
+  @Roles('admin', 'mentor')
+  candidates(@Param('courseId') courseId: string, @Query('page') page: string,
+    @CurrentUser() user: AuthenticatedUser) {
+    return this.courses.enrollmentCandidates(courseId, user, Number(page || 0));
   }
 
   @Post(':courseId/enrollments/by-email')

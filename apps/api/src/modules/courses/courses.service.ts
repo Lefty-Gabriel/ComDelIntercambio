@@ -133,6 +133,16 @@ export class CoursesService {
     );
   }
 
+  async enrollmentCandidates(courseId: string, user: AuthenticatedUser, page = 0) {
+    await this.assertCanManageCourse(courseId, user);
+    if (!Number.isInteger(page) || page < 0) throw new BadRequestException('Pagina invalida');
+    const { data, error, count } = await this.supabase.client.schema('iam').from('profiles')
+      .select('id,full_name,email', { count: 'exact' }).eq('role', 'estudiante')
+      .order('full_name').order('id').range(page * 50, page * 50 + 49);
+    if (error) throw new BadRequestException(error.message);
+    return { items: (data || []).map(row => ({ id: row.id, fullName: row.full_name, email: row.email })), total: count || 0 };
+  }
+
   async enrollByEmail(
     courseId: string,
     email: string,

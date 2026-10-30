@@ -59,6 +59,7 @@ describe('administrative content and access boundaries', () => {
   });
   it('does not move a lesson to another course through its URL', async () => {
     const service = new AdministrationService({} as any);
+    vi.spyOn(service as any, 'course').mockResolvedValue({ id: 'course' });
     vi.spyOn(service as any, 'module').mockResolvedValue({
       course_id: 'course',
     });

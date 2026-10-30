@@ -69,3 +69,45 @@ describe('Zoom link updates', () => {
     expect(update).not.toHaveBeenCalled();
   });
 });
+
+describe('scheduled class editing', () => {
+  function setup(teacher = 'mentor', status = 'scheduled') {
+    const row = { id: 'session', course_id: 'course', title: 'Updated', status,
+      scheduled_at: '2099-11-01T15:00:00Z', duration_minutes: 90, join_url: null };
+    const query: any = { update: vi.fn(() => query), eq: () => query,
+      select: () => query, single: async () => ({ data: row, error: null }) };
+    const service = new LiveSessionsService(
+      { client: { schema: () => ({ from: () => query }) } } as any,
+      { getCourseDocenteId: async () => teacher } as any);
+    vi.spyOn(service as any, 'getRowOrFail').mockResolvedValue(row);
+    return { service, query, input: { courseId: 'course', title: row.title,
+      scheduledAt: row.scheduled_at, durationMinutes: 90, joinUrl: '' } };
+  }
+  it('persists schedule, title, duration and cleared link for the assigned mentor', async () => {
+    const { service, query, input } = setup();
+    const result = await service.update(actor('mentor'), 'session', input);
+    expect(query.update).toHaveBeenCalledWith({ title: 'Updated',
+      scheduled_at: input.scheduledAt, duration_minutes: 90, join_url: null });
+    expect(result.durationMinutes).toBe(90);
+  });
+  it('normalizes meeting ID, saves the guest passcode and permits clearing both', async () => {
+    const { service, query, input } = setup();
+    await service.update(actor('mentor'), 'session', { ...input, meetingId: '123 4567 8901', meetingPasscode: ' Guest123 ' });
+    expect(query.update).toHaveBeenLastCalledWith(expect.objectContaining({ meeting_id: '12345678901', meeting_passcode: 'Guest123' }));
+    await service.update(actor('mentor'), 'session', { ...input, meetingId: '', meetingPasscode: '' });
+    expect(query.update).toHaveBeenLastCalledWith(expect.objectContaining({ meeting_id: null, meeting_passcode: null }));
+  });
+  it('rejects another mentor without writing', async () => {
+    const { service, query, input } = setup('other');
+    await expect(service.update(actor('mentor'), 'session', input)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(query.update).not.toHaveBeenCalled();
+  });
+  it('rejects moving a class or editing an ended class', async () => {
+    const { service, query, input } = setup();
+    await expect(service.update(actor('mentor'), 'session', { ...input, courseId: 'other' })).rejects.toThrow('curso');
+    expect(query.update).not.toHaveBeenCalled();
+    const ended = setup('mentor', 'ended');
+    await expect(ended.service.update(actor('mentor'), 'session', ended.input)).rejects.toThrow('finalizada');
+    expect(ended.query.update).not.toHaveBeenCalled();
+  });
+});

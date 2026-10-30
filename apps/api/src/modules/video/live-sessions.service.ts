@@ -21,6 +21,8 @@ interface LiveSessionRow {
   scheduled_at: string;
   duration_minutes: number;
   join_url?: string | null;
+  meeting_id?: string | null;
+  meeting_passcode?: string | null;
 }
 
 export interface LiveSession {
@@ -35,6 +37,8 @@ export interface LiveSession {
   scheduledAt: string;
   durationMinutes: number;
   joinUrl?: string | null;
+  meetingId?: string | null;
+  meetingPasscode?: string | null;
 }
 
 @Injectable()
@@ -52,6 +56,8 @@ export class LiveSessionsService {
       scheduledAt: string;
       durationMinutes: number;
       joinUrl?: string | null;
+  meetingId?: string | null;
+  meetingPasscode?: string | null;
     },
   ): Promise<LiveSession> {
     await this.assertCanManageCourse(user, input.courseId);
@@ -69,6 +75,8 @@ export class LiveSessionsService {
         scheduled_at: input.scheduledAt,
         duration_minutes: input.durationMinutes,
         join_url: input.joinUrl || null,
+        meeting_id: input.meetingId?.replace(/[\s-]/g, "") || null,
+        meeting_passcode: input.meetingPasscode?.trim() || null,
       })
       .select('*')
       .single();
@@ -78,6 +86,27 @@ export class LiveSessionsService {
         error?.message ?? 'Could not create live session',
       );
     }
+    return this.mapSession(data as LiveSessionRow);
+  }
+
+  async update(user: AuthenticatedUser, id: string, input: {
+    courseId: string; title: string; scheduledAt: string;
+    durationMinutes: number; joinUrl?: string | null;
+    meetingId?: string | null; meetingPasscode?: string | null;
+  }): Promise<LiveSession> {
+    const row = await this.getRowOrFail(id);
+    await this.assertCanManageCourse(user, row.course_id);
+    if (input.courseId !== row.course_id)
+      throw new BadRequestException('No se puede cambiar el curso de una clase existente');
+    if (row.status === 'ended')
+      throw new BadRequestException('No se puede editar una clase finalizada');
+    const { data, error } = await this.supabase.client.schema('video')
+      .from('live_sessions').update({ title: input.title,
+        scheduled_at: input.scheduledAt, duration_minutes: input.durationMinutes,
+        join_url: input.joinUrl || null,
+        ...(input.meetingId !== undefined ? { meeting_id: input.meetingId?.replace(/[\s-]/g, '') || null } : {}),
+        ...(input.meetingPasscode !== undefined ? { meeting_passcode: input.meetingPasscode?.trim() || null } : {}) }).eq('id', id).select('*').single();
+    if (error || !data) throw new BadRequestException(error?.message || 'No se pudo actualizar la clase');
     return this.mapSession(data as LiveSessionRow);
   }
 
@@ -120,13 +149,16 @@ export class LiveSessionsService {
     user: AuthenticatedUser,
     id: string,
     joinUrl: string | null,
+    details: { meetingId?: string; meetingPasscode?: string } = {},
   ): Promise<LiveSession> {
     const row = await this.getRowOrFail(id);
     await this.assertCanManageCourse(user, row.course_id);
     const { data, error } = await this.supabase.client
       .schema('video')
       .from('live_sessions')
-      .update({ join_url: joinUrl })
+      .update({ join_url: joinUrl,
+        ...(details.meetingId !== undefined ? { meeting_id: details.meetingId.replace(/[\s-]/g, '') || null } : {}),
+        ...(details.meetingPasscode !== undefined ? { meeting_passcode: details.meetingPasscode.trim() || null } : {}) })
       .eq('id', id)
       .select('*')
       .single();
@@ -213,6 +245,8 @@ export class LiveSessionsService {
       scheduledAt: row.scheduled_at,
       durationMinutes: row.duration_minutes,
       joinUrl: row.join_url || null,
+      meetingId: row.meeting_id || null,
+      meetingPasscode: row.meeting_passcode || null,
     };
   }
 }

@@ -57,7 +57,7 @@ export class JwtAuthGuard implements CanActivate {
     const { data, error } = await this.supabase.client
       .schema('iam')
       .from('profiles')
-      .select('id, email, full_name, role')
+      .select('id, email, full_name, role, title, avatar_url')
       .eq('id', userId)
       .single();
 
@@ -74,6 +74,8 @@ export class JwtAuthGuard implements CanActivate {
       email: data.email as string,
       fullName: data.full_name as string,
       role: data.role as Role,
+      title: data.title || '',
+      avatarUrl: data.avatar_url || '',
     };
     return true;
   }

@@ -39,7 +39,14 @@ export class LiveSessionsController {
     @Param('id') id: string,
     @Body() dto: UpdateJoinLinkDto,
   ) {
-    return this.sessions.updateJoinLink(user, id, dto.joinUrl || null);
+    return this.sessions.updateJoinLink(user, id, dto.joinUrl || null, dto);
+  }
+
+  @Patch(':id')
+  @Roles('admin', 'mentor')
+  update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string,
+    @Body() dto: CreateLiveSessionDto) {
+    return this.sessions.update(user, id, dto);
   }
 
   @Get()

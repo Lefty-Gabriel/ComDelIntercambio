@@ -40,20 +40,23 @@ export class AdministrationController {
   ) {
     return this.administration.updateCourse(user, id, dto);
   }
-  @Get('courses/:courseId/curriculum') curriculum(
+  @Get('courses/:courseId/curriculum')
+  @Roles('admin', 'mentor') curriculum(
     @CurrentUser() user: AuthenticatedUser,
     @Param('courseId', ParseUUIDPipe) id: string,
   ) {
     return this.administration.curriculum(user, id);
   }
-  @Post('courses/:courseId/modules') addModule(
+  @Post('courses/:courseId/modules')
+  @Roles('admin', 'mentor') addModule(
     @CurrentUser() user: AuthenticatedUser,
     @Param('courseId', ParseUUIDPipe) id: string,
     @Body() dto: ModuleInputDto,
   ) {
     return this.administration.saveModule(user, id, dto);
   }
-  @Patch('courses/:courseId/modules/:id') editModule(
+  @Patch('courses/:courseId/modules/:id')
+  @Roles('admin', 'mentor') editModule(
     @CurrentUser() user: AuthenticatedUser,
     @Param('courseId', ParseUUIDPipe) courseId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -61,14 +64,16 @@ export class AdministrationController {
   ) {
     return this.administration.saveModule(user, courseId, dto, id);
   }
-  @Post('modules/:moduleId/lessons') addLesson(
+  @Post('modules/:moduleId/lessons')
+  @Roles('admin', 'mentor') addLesson(
     @CurrentUser() user: AuthenticatedUser,
     @Param('moduleId', ParseUUIDPipe) id: string,
     @Body() dto: LessonInputDto,
   ) {
     return this.administration.saveLesson(user, id, dto);
   }
-  @Patch('modules/:moduleId/lessons/:id') editLesson(
+  @Patch('modules/:moduleId/lessons/:id')
+  @Roles('admin', 'mentor') editLesson(
     @CurrentUser() user: AuthenticatedUser,
     @Param('moduleId', ParseUUIDPipe) moduleId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -76,7 +81,8 @@ export class AdministrationController {
   ) {
     return this.administration.saveLesson(user, moduleId, dto, id);
   }
-  @Post('lessons/:id/resources/link') resourceLink(
+  @Post('lessons/:id/resources/link')
+  @Roles('admin', 'mentor') resourceLink(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ResourceLinkDto,
@@ -84,6 +90,7 @@ export class AdministrationController {
     return this.administration.addResourceLink(user, id, dto);
   }
   @Post('lessons/:id/resources/upload')
+  @Roles('admin', 'mentor')
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: 25 * 1024 * 1024 } }),
   )
@@ -101,7 +108,8 @@ export class AdministrationController {
   ) {
     return this.administration.uploadResource(user, id, file, title);
   }
-  @Patch('resources/:id') resourceState(
+  @Patch('resources/:id')
+  @Roles('admin', 'mentor') resourceState(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ResourceStateDto,

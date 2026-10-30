@@ -24,6 +24,19 @@ export class AdministrationService {
     if (user.role !== 'admin')
       throw new ForbiddenException('Administrator access required');
   }
+  private async assertCourseEditor(user: AuthenticatedUser, courseId: string) {
+    if (!['admin', 'mentor'].includes(user.role)) throw new ForbiddenException('Academic editing access required');
+    const course = await this.course(courseId);
+    if (user.role !== 'admin' && course.docente_id !== user.id)
+      throw new ForbiddenException('Solo puedes editar el contenido de tus cursos asignados');
+    return course;
+  }
+  private async assertLessonEditor(user: AuthenticatedUser, lessonId: string) {
+    const lesson = await this.lesson(lessonId);
+    const module = await this.module(lesson.module_id);
+    await this.assertCourseEditor(user, module.course_id);
+    return { lesson, module };
+  }
   private db(table: string) {
     return this.supabase.client.schema('courses').from(table);
   }
@@ -100,8 +113,7 @@ export class AdministrationService {
     return data;
   }
   async curriculum(user: AuthenticatedUser, courseId: string) {
-    this.admin(user);
-    const course = await this.course(courseId);
+    const course = await this.assertCourseEditor(user, courseId);
     const { data: modules, error: me } = await this.db('course_modules')
       .select('*')
       .eq('course_id', courseId)
@@ -152,8 +164,7 @@ export class AdministrationService {
     input: ModuleInputDto,
     id?: string,
   ) {
-    this.admin(user);
-    await this.course(courseId);
+    await this.assertCourseEditor(user, courseId);
     if (input.title.trim().length < 2)
       throw new BadRequestException('Escribe el titulo del modulo');
     if (id && (await this.module(id)).course_id !== courseId)
@@ -176,8 +187,8 @@ export class AdministrationService {
     input: LessonInputDto,
     id?: string,
   ) {
-    this.admin(user);
     const module = await this.module(moduleId);
+    await this.assertCourseEditor(user, module.course_id);
     if (id && (await this.lesson(id)).module_id !== moduleId)
       throw new BadRequestException('La leccion no pertenece al modulo');
     if (input.title.trim().length < 2)
@@ -221,8 +232,7 @@ export class AdministrationService {
     lessonId: string,
     input: ResourceLinkDto,
   ) {
-    this.admin(user);
-    await this.lesson(lessonId);
+    await this.assertLessonEditor(user, lessonId);
     const { data, error } = await this.db('lesson_resources')
       .insert({
         lesson_id: lessonId,
@@ -249,9 +259,7 @@ export class AdministrationService {
     },
     title?: string,
   ) {
-    this.admin(user);
-    const lesson = await this.lesson(lessonId);
-    const module = await this.module(lesson.module_id);
+    const { module } = await this.assertLessonEditor(user, lessonId);
     if (!file?.buffer?.length)
       throw new BadRequestException('Selecciona un archivo');
     const extension = extname(file.originalname).toLowerCase();
@@ -305,7 +313,11 @@ export class AdministrationService {
     return data;
   }
   async resourceState(user: AuthenticatedUser, id: string, published: boolean) {
-    this.admin(user);
+    const { data: resource, error: resourceError } = await this.db('lesson_resources')
+      .select('lesson_id').eq('id', id).maybeSingle();
+    if (resourceError) this.failure(resourceError);
+    if (!resource) throw new NotFoundException('Material no encontrado');
+    await this.assertLessonEditor(user, resource.lesson_id);
     const { data, error } = await this.db('lesson_resources')
       .update({ is_published: published, updated_at: new Date().toISOString() })
       .eq('id', id)

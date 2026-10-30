@@ -101,6 +101,26 @@ function resourcePersistence(
 }
 
 describe('StudentDashboardService', () => {
+  it.each([true, false])('uses the single personal mentor across courses (assigned: %s)', async (assigned) => {
+    const rows = ['course-1', 'course-2'].map((id, index) => ({ course: {
+      id, title: id, docente_id: index ? 'other-teacher' : null,
+      created_at: '2026-10-30T00:00:00Z',
+    } }));
+    const query: any = { select: () => query, eq: () => query,
+      then: (resolve: any) => Promise.resolve({ data: rows, error: null }).then(resolve) };
+    const service: any = new StudentDashboardService({ client: { schema: () => ({ from: () => query }) } } as any, {} as any);
+    for (const method of ['loadModules', 'loadUpcomingClasses', 'loadAnnouncements', 'loadLessons',
+      'loadProgress', 'loadResources', 'loadNotes', 'loadQuestions']) service[method] = async () => [];
+    service.loadAssignedMentor = async () => assigned ? [{ id: 'personal', full_name: 'Mentor personal', title: 'Guía', avatar_url: '' }] : [];
+    const dashboard = await service.getDashboard(student);
+    expect(dashboard.mentors).toHaveLength(assigned ? 1 : 0);
+    expect(dashboard.courses).toHaveLength(2);
+    for (const course of dashboard.courses) {
+      expect(course.mentorName).toBe(assigned ? 'Mentor personal' : 'Mentor por asignar');
+      expect(course.mentorAvatar).toBe('');
+    }
+    expect(dashboard.courses.find((course: any) => course.id === 'course-2').docenteId).toBe('other-teacher');
+  });
   it('rejects dashboard access for non-student roles', async () => {
     const service = new StudentDashboardService({} as any, {} as any);
     await expect(

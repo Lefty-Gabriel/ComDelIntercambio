@@ -29,6 +29,19 @@ function setup(assigned = true, targetRole = 'estudiante') {
   return { service, saved: () => saved, filters: () => filter };
 }
 describe('mentor enrollment autonomy', () => {
+  it('returns only student directory fields after checking the assigned course', async () => {
+    const query: any = { select: vi.fn(() => query), eq: vi.fn(() => query), order: () => query,
+      range: vi.fn(async () => ({ data: [{ id: 'student', full_name: 'Alumna', email: 'alumna@example.test' }], count: 1, error: null })) };
+    const service = new CoursesService({ client: { schema: () => ({ from: () => query }) } } as any);
+    vi.spyOn(service, 'getCourseDocenteId').mockResolvedValue('mentor');
+    expect(await service.enrollmentCandidates('course', actor())).toEqual({ items: [{ id: 'student', fullName: 'Alumna', email: 'alumna@example.test' }], total: 1 });
+    expect(query.eq).toHaveBeenCalledWith('role', 'estudiante');
+    expect(query.range).toHaveBeenCalledWith(0, 49);
+    query.select.mockClear();
+    vi.mocked(service.getCourseDocenteId).mockResolvedValue('other');
+    await expect(service.enrollmentCandidates('course', actor())).rejects.toBeInstanceOf(ForbiddenException);
+    expect(query.select).not.toHaveBeenCalled();
+  });
   it('allows assigned mentors to enroll students and activate their enrollment', async () => {
     const { service, saved } = setup();
     await service.enroll('course', 'student', actor());

@@ -163,10 +163,9 @@ export class StudentDashboardService {
       (id) => accessByCourse.get(id)?.can_join_live !== false,
     );
 
-    const [moduleRows, mentorRows, upcomingClasses, announcements, assignedMentors] =
+    const [moduleRows, upcomingClasses, announcements, assignedMentors] =
       await Promise.all([
         this.loadModules(contentCourseIds),
-        this.loadMentors(courseRows),
         this.loadUpcomingClasses(liveCourseIds, courseRows),
         this.loadAnnouncements(courseIds, courseRows),
         this.loadAssignedMentor(user.id),
@@ -206,7 +205,6 @@ export class StudentDashboardService {
       questionsByLesson.set(question.lesson_id, questions);
     }
 
-    const mentorById = new Map(mentorRows.map((mentor) => [mentor.id, mentor]));
     const modulesByCourse = new Map<string, ModuleRow[]>();
     for (const courseModule of moduleRows) {
       const modules = modulesByCourse.get(courseModule.course_id) ?? [];
@@ -215,9 +213,7 @@ export class StudentDashboardService {
     }
 
     const courses = courseRows.map((course) => {
-      const mentor = course.docente_id
-        ? mentorById.get(course.docente_id)
-        : undefined;
+      const mentor = assignedMentors[0];
       const modules = (modulesByCourse.get(course.id) ?? []).map(
         (courseModule) => ({
           id: courseModule.id,
@@ -291,7 +287,7 @@ export class StudentDashboardService {
         accessExpiresAt: accessByCourse.get(course.id)?.expires_at || null,
         docenteId: course.docente_id,
         mentorName: mentor?.full_name || 'Mentor por asignar',
-        mentorTitle: mentor?.title || 'Mentor del programa',
+        mentorTitle: mentor?.title || 'Tu mentor asignado',
         mentorAvatar: mentor?.avatar_url || '',
         progressPercent,
         completedLessonsCount: completedLessons.length,
@@ -532,7 +528,7 @@ export class StudentDashboardService {
     const { data, error } = await this.supabase.client
       .schema('courses')
       .from('lesson_resources')
-      .select('id, lesson_id, title, storage_path, external_url')
+      .select('id, lesson_id, title, kind, storage_path, external_url')
       .eq('id', resourceId)
       .eq('is_published', true)
       .maybeSingle();
@@ -542,7 +538,7 @@ export class StudentDashboardService {
 
     const resource = data as Pick<
       ResourceRow,
-      'id' | 'lesson_id' | 'title' | 'storage_path' | 'external_url'
+      'id' | 'lesson_id' | 'title' | 'kind' | 'storage_path' | 'external_url'
     >;
     const courseId = await this.getPublishedLessonCourseId(resource.lesson_id);
     const enrolled = await this.courses.isEnrolled(
@@ -578,7 +574,8 @@ export class StudentDashboardService {
     const { data: signed, error: signedError } =
       await this.supabase.client.storage
         .from(COURSE_RESOURCES_BUCKET)
-        .createSignedUrl(resource.storage_path, RESOURCE_URL_TTL_SECONDS);
+        .createSignedUrl(resource.storage_path, RESOURCE_URL_TTL_SECONDS,
+          resource.kind === 'complementary' ? {} : { download: true });
 
     if (signedError || !signed) {
       throw new BadRequestException(
@@ -745,26 +742,6 @@ export class StudentDashboardService {
       .eq('id', assignment.mentor_id).eq('role', 'mentor');
     if (profileError) throw new BadRequestException(profileError.message);
     return (data || []) as ProfileRow[];
-  }
-
-  private async loadMentors(courseRows: CourseRow[]): Promise<ProfileRow[]> {
-    const mentorIds = [
-      ...new Set(
-        courseRows
-          .map((course) => course.docente_id)
-          .filter((id): id is string => Boolean(id)),
-      ),
-    ];
-    if (!mentorIds.length) return [];
-    const { data, error } = await this.supabase.client
-      .schema('iam')
-      .from('profiles')
-      .select(
-        'id, full_name, title, avatar_url, company, bio, linkedin, website',
-      )
-      .in('id', mentorIds);
-    if (error) throw new BadRequestException(error.message);
-    return (data ?? []) as ProfileRow[];
   }
 
   private async loadUpcomingClasses(

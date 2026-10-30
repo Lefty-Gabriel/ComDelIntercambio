@@ -19,7 +19,7 @@ export class ModuleInputDto {
 }
 export class LessonInputDto {
   @IsString() @MinLength(2) @MaxLength(160) title!: string;
-  @IsOptional() @IsString() @MaxLength(2000) summary?: string;
+  @IsOptional() @IsString() @MaxLength(2000, { message: 'El resumen admite hasta 2.000 caracteres. Usa Texto de la lección para el contenido completo.' }) summary?: string;
   @IsOptional() @IsString() @MaxLength(100000) content?: string;
   @IsInt() @Min(0) position!: number;
   @IsInt() @Min(0) @Max(1440) durationMinutes!: number;
