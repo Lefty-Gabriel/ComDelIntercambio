@@ -14,7 +14,7 @@ export class NotificationsService {
     private readonly courses: CoursesService,
   ) {}
   async list(user: AuthenticatedUser) {
-    if (!['admin', 'mentor', 'estudiante'].includes(user.role)) return [];
+    if (!['admin', 'mentor', 'estudiante', 'soporte'].includes(user.role)) return [];
     const { data, error } = await this.supabase.client
       .schema('courses')
       .rpc('notification_feed', { p_user_id: user.id });
@@ -23,6 +23,7 @@ export class NotificationsService {
       id: row.id,
       type: row.type,
       courseId: row.course_id,
+      ...(row.type === 'support' ? { ticketId: row.id.split(':')[1] } : {}),
       title: row.title,
       description: row.description,
       createdAt: row.occurred_at,

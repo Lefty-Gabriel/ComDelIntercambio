@@ -2,11 +2,13 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { SupabaseService } from '../../common/supabase/supabase.service.js';
 import type { AuthenticatedUser, Role } from '../auth/auth.types.js';
 import { ROLES } from '../auth/auth.types.js';
 import type { CreateUserDto } from './dto/create-user.dto.js';
+import type { UpdateUserDto } from './dto/update-user.dto.js';
 
 interface ProfileRow {
   id: string;
@@ -27,6 +29,33 @@ interface ProfileRow {
 @Injectable()
 export class UsersService {
   constructor(private readonly supabase: SupabaseService) {}
+
+  async update(id: string, input: UpdateUserDto, user: AuthenticatedUser) {
+    if (user.role !== 'admin') throw new ForbiddenException('Administrator access required');
+    if (input.fullName.trim().length < 2) throw new BadRequestException('Escribe un nombre de al menos dos caracteres');
+    const fields: Record<string, string> = { full_name: input.fullName.trim(), updated_at: new Date().toISOString() };
+    for (const key of ['company', 'title', 'phone', 'location'] as const) {
+      if (input[key] !== undefined) fields[key] = input[key].trim();
+    }
+    const { data, error } = await this.supabase.client.schema('iam').from('profiles')
+      .update(fields).eq('id', id).select('*').maybeSingle();
+    if (error) throw new BadRequestException('No se pudo guardar el perfil');
+    if (!data) throw new NotFoundException('Usuario no encontrado');
+    return this.mapProfile(data as ProfileRow);
+  }
+
+  async remove(id: string, user: AuthenticatedUser) {
+    if (user.role !== 'admin') throw new ForbiddenException('Administrator access required');
+    if (id === user.id) throw new ForbiddenException('No puedes eliminar tu propia cuenta administrativa');
+    const { data, error } = await this.supabase.client.schema('iam').from('profiles')
+      .select('id').eq('id', id).maybeSingle();
+    if (error) throw new BadRequestException('No se pudo consultar la cuenta');
+    if (!data) throw new NotFoundException('Usuario no encontrado');
+    // Auth deletion cascades through the profile and its academic relations.
+    const result = await this.supabase.client.auth.admin.deleteUser(id);
+    if (result.error) throw new BadRequestException('No se pudo eliminar la cuenta. Revisa sus archivos asociados e intenta nuevamente.');
+    return { deleted: true, id };
+  }
 
   async list(user: AuthenticatedUser): Promise<AuthenticatedUser[]> {
     if (user.role !== 'admin')

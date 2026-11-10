@@ -3,11 +3,18 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  IsUrl,
+  MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
 
 export class CreateVideoDto {
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(2048)
+  externalUrl?: string;
+
   @IsOptional()
   @IsUUID()
   liveSessionId?: string;

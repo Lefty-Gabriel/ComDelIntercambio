@@ -17,11 +17,21 @@ import { RolesGuard } from '../auth/roles.guard.js';
 import { CreateTicketDto } from './dto/create-ticket.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
 import { TicketsService } from './tickets.service.js';
+import { TicketLabelsDto } from './dto/ticket-labels.dto.js';
 @Controller('tickets')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('estudiante', 'soporte')
+@Roles('estudiante', 'soporte', 'admin')
 export class TicketsController {
   constructor(private readonly tickets: TicketsService) {}
+  @Post(':id/labels') @Roles('soporte') @HttpCode(200) labels(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TicketLabelsDto,
+  ) { return this.tickets.organize(user, id, dto.labels); }
+  @Post(':id/resolve') @Roles('soporte') @HttpCode(200) resolve(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) { return this.tickets.organize(user, id); }
   @Delete(':id') @Roles('soporte') @HttpCode(204) remove(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,

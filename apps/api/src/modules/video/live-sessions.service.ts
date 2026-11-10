@@ -169,6 +169,15 @@ export class LiveSessionsService {
     return this.mapSession(data as LiveSessionRow);
   }
 
+  async remove(user: AuthenticatedUser, id: string): Promise<{ deleted: true }> {
+    if (user.role !== 'admin') throw new ForbiddenException('Solo administradores pueden eliminar clases');
+    await this.getRowOrFail(id);
+    const { data, error } = await this.supabase.client.schema('video').from('live_sessions').delete().eq('id', id).select('id').maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('Live session not found');
+    return { deleted: true };
+  }
+
   async end(user: AuthenticatedUser, id: string): Promise<LiveSession> {
     const row = await this.getRowOrFail(id);
     await this.assertCanManageCourse(user, row.course_id);

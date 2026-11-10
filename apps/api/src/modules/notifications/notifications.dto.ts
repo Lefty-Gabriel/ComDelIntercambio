@@ -16,7 +16,7 @@ export class ReadNotificationsDto {
   @ArrayMaxSize(100)
   @ArrayUnique()
   @IsString({ each: true })
-  @Matches(/^(live|video|lesson|resource|announcement):[0-9a-f-]{36}$/i, {
+  @Matches(/^(?:(?:live|video|lesson|resource|announcement):[0-9a-f-]{36}|support:[0-9a-f-]{36}:[0-9a-f-]{36})$/i, {
     each: true,
   })
   ids!: string[];

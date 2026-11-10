@@ -28,6 +28,21 @@ function setup(
   return { service, rpc, schema };
 }
 describe('support ticket conversation access', () => {
+  it('only the assigned support agent can label or resolve a case', async () => {
+    const { service, rpc } = setup();
+    await expect(service.organize(actor(), 'ticket', ['Acceso'])).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.organize(actor('soporte', 'other'), 'ticket')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(rpc).not.toHaveBeenCalled();
+    await service.organize(actor('soporte', 'agent'), 'ticket', [' Acceso ', 'Acceso']);
+    expect(rpc).toHaveBeenLastCalledWith('organize_ticket', { p_ticket_id: 'ticket', p_actor_id: 'agent', p_resolve: false, p_labels: ['Acceso'] });
+    await service.organize(actor('soporte', 'agent'), 'ticket');
+    expect(rpc).toHaveBeenLastCalledWith('organize_ticket', { p_ticket_id: 'ticket', p_actor_id: 'agent', p_resolve: true, p_labels: null });
+  });
+  it('does not allow replies to resolved conversations', async () => {
+    const { service, rpc } = setup({ id: 'ticket', student_id: 'student', assigned_to: 'agent', status: 'resolved' });
+    await expect(service.send(actor(), 'ticket', 'Late reply')).rejects.toBeInstanceOf(BadRequestException);
+    expect(rpc).not.toHaveBeenCalled();
+  });
   it('denies deletion by students and other support agents', async () => {
     await expect(setup().service.remove(actor(), 'ticket')).rejects.toBeInstanceOf(ForbiddenException);
     await expect(setup().service.remove(actor('soporte', 'other'), 'ticket')).rejects.toBeInstanceOf(ForbiddenException);
@@ -177,10 +192,25 @@ describe('support ticket conversation access', () => {
       service.create(actor('soporte', 'agent'), 'Help', 'Hello'),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
-  it.each(['admin', 'mentor'])('denies %s ticket access', async (role) => {
+  it.each(['mentor'])('denies %s ticket access', async (role) => {
     await expect(setup().service.list(actor(role))).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+  it('allows administrative supervision and enriches tickets without changing assignment', async () => {
+    const ticket = { id: 'ticket', student_id: 'student', assigned_to: 'agent', status: 'in_progress' };
+    const query: any = { select: () => query, order: () => query, range: async () => ({ data: [ticket], error: null }) };
+    const profiles: any = { select: () => profiles, in: async () => ({ data: [{ id: 'student', full_name: 'Student name' }, { id: 'agent', full_name: 'Agent name' }], error: null }) };
+    const service = new TicketsService({ client: { schema: (name: string) => ({ from: () => name === 'iam' ? profiles : query }) } } as any);
+    expect(await service.list(actor('admin'))).toEqual([{ ...ticket, student_name: 'Student name', agent_name: 'Agent name' }]);
+  });
+  it('keeps administrative supervision read only for all ticket mutations', async () => {
+    const { service, rpc } = setup();
+    const admin = actor('admin');
+    for (const action of [() => service.send(admin, 'ticket', 'Hello'), () => service.claim(admin, 'ticket'), () => service.close(admin, 'ticket'), () => service.organize(admin, 'ticket'), () => service.remove(admin, 'ticket'), () => service.create(admin, 'subject', 'message')]) {
+      await expect(action()).rejects.toBeInstanceOf(ForbiddenException);
+    }
+    expect(rpc).not.toHaveBeenCalled();
   });
   it('denies another student conversation', async () => {
     await expect(

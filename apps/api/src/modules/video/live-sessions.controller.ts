@@ -2,6 +2,7 @@ import { UpdateJoinLinkDto } from './dto/update-join-link.dto.js';
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -47,6 +48,12 @@ export class LiveSessionsController {
   update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string,
     @Body() dto: CreateLiveSessionDto) {
     return this.sessions.update(user, id, dto);
+  }
+
+  @Delete(':id')
+  @Roles('admin')
+  remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.sessions.remove(user, id);
   }
 
   @Get()

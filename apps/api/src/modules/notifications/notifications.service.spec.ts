@@ -23,6 +23,11 @@ function setup() {
   return { service, insert, upsert, rpc, courses };
 }
 describe('academic notifications', () => {
+  it('exposes a support notification destination from the persisted ticket id', async () => {
+    const { service, rpc } = setup();
+    rpc.mockResolvedValueOnce({ data: [{ id: 'support:ticket-id:event-id', type: 'support', title: 'Reply', is_read: false }] as any, error: null });
+    expect(await service.list(actor('estudiante'))).toEqual([expect.objectContaining({ type: 'support', ticketId: 'ticket-id', read: false })]);
+  });
   const input: any = {
     courseId: 'course',
     title: 'New event',
@@ -36,10 +41,10 @@ describe('academic notifications', () => {
       p_user_id: 'actor',
     });
   });
-  it('does not request academic notifications for support', async () => {
+  it('requests the scoped notification feed for support agents', async () => {
     const { service, rpc } = setup();
-    expect(await service.list(actor('soporte'))).toEqual([]);
-    expect(rpc).not.toHaveBeenCalled();
+    await service.list(actor('soporte'));
+    expect(rpc).toHaveBeenCalledWith('notification_feed', { p_user_id: 'actor' });
   });
   it('only marks visible notifications for the authenticated user', async () => {
     const { service, upsert } = setup();

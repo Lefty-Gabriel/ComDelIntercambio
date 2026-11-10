@@ -10,7 +10,7 @@ interface Ticket {
   id: string;
   student_id: string;
   assigned_to: string | null;
-  status: 'open' | 'in_progress' | 'closed';
+  status: 'open' | 'in_progress' | 'closed' | 'resolved';
 }
 @Injectable()
 export class TicketsService {
@@ -19,12 +19,12 @@ export class TicketsService {
     return this.supabase.client.schema('support');
   }
   private assertRole(user: AuthenticatedUser) {
-    if (!['estudiante', 'soporte'].includes(user.role))
+    if (!['estudiante', 'soporte', 'admin'].includes(user.role))
       throw new ForbiddenException('Student or support access required');
   }
   async list(user: AuthenticatedUser) {
     this.assertRole(user);
-    return this.allPages((from, to) => {
+    const tickets = await this.allPages((from, to) => {
       let query = this.db.from('tickets').select('*');
       if (user.role === 'estudiante') query = query.eq('student_id', user.id);
       return query
@@ -32,6 +32,16 @@ export class TicketsService {
         .order('id', { ascending: false })
         .range(from, to);
     });
+    if (user.role !== 'admin' || !tickets.length) return tickets;
+    const ids = [...new Set(tickets.flatMap(ticket => [ticket.student_id, ticket.assigned_to]).filter(Boolean))];
+    const profiles: any[] = [];
+    for (let start = 0; start < ids.length; start += 500) {
+      const { data, error } = await this.supabase.client.schema('iam').from('profiles').select('id,full_name').in('id', ids.slice(start, start + 500));
+      if (error) throw new BadRequestException(error.message);
+      profiles.push(...(data || []));
+    }
+    const names = new Map(profiles.map(profile => [profile.id, profile.full_name]));
+    return tickets.map(ticket => ({ ...ticket, student_name: names.get(ticket.student_id) || 'Estudiante', agent_name: names.get(ticket.assigned_to) || null }));
   }
   private async allPages(
     fetchPage: (
@@ -86,7 +96,7 @@ export class TicketsService {
         .range(from, to),
     );
     if (
-      user.role !== 'soporte' ||
+      !['soporte', 'admin'].includes(user.role) ||
       !messages.some((message) => message.sender_id === ticket.student_id)
     )
       return messages;
@@ -111,9 +121,10 @@ export class TicketsService {
       );
   }
   async send(user: AuthenticatedUser, id: string, body: string) {
+    if (user.role === 'admin') throw new ForbiddenException('Administrative supervision is read only');
     const ticket = await this.ticket(user, id);
     this.assertParticipant(user, ticket);
-    if (ticket.status === 'closed')
+    if (['closed', 'resolved'].includes(ticket.status))
       throw new BadRequestException('Ticket is closed');
     return this.rpc('send_message', {
       p_ticket_id: id,
@@ -126,6 +137,16 @@ export class TicketsService {
     if (user.role !== 'soporte')
       throw new ForbiddenException('Support access required');
     return this.rpc('claim_ticket', { p_ticket_id: id, p_actor_id: user.id });
+  }
+  async organize(user: AuthenticatedUser, id: string, labels?: string[]) {
+    if (user.role !== 'soporte') throw new ForbiddenException('Support access required');
+    const ticket = await this.ticket(user, id);
+    this.assertParticipant(user, ticket);
+    return this.rpc('organize_ticket', {
+      p_ticket_id: id, p_actor_id: user.id,
+      p_resolve: labels === undefined,
+      p_labels: labels === undefined ? null : [...new Set(labels.map(label => label.trim()))],
+    });
   }
   async close(user: AuthenticatedUser, id: string) {
     const ticket = await this.ticket(user, id);
@@ -149,7 +170,7 @@ export class TicketsService {
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new NotFoundException('Ticket no longer available');
   }
-  private async rpc(name: string, args: Record<string, string>) {
+  private async rpc(name: string, args: Record<string, string | boolean | string[] | null>) {
     const { data, error } = await this.db.rpc(name, args);
     if (error) {
       if (error.code === '42501') throw new ForbiddenException(error.message);
