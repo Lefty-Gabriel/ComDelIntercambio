@@ -95,23 +95,22 @@ export class TicketsService {
         .order('id', { ascending: true })
         .range(from, to),
     );
-    if (
-      !['soporte', 'admin'].includes(user.role) ||
-      !messages.some((message) => message.sender_id === ticket.student_id)
-    )
-      return messages;
-    const { data: student, error } = await this.supabase.client
-      .schema('iam')
-      .from('profiles')
-      .select('full_name')
-      .eq('id', ticket.student_id)
-      .maybeSingle();
-    if (error) throw new BadRequestException(error.message);
-    return messages.map((message) =>
-      message.sender_id === ticket.student_id
-        ? { ...message, sender_name: student?.full_name?.trim() || null }
-        : message,
-    );
+    return this.enrichMessages(messages);
+  }
+
+  private async enrichMessages(messages: any[]) {
+    const ids = [...new Set(messages.map(message => message.sender_id).filter(Boolean))];
+    const profiles = new Map<string, { full_name?: string; role?: string }>();
+    for (let start = 0; start < ids.length; start += 500) {
+      const { data, error } = await this.supabase.client.schema('iam').from('profiles')
+        .select('id,full_name,role').in('id', ids.slice(start, start + 500));
+      if (error) throw new BadRequestException(error.message);
+      for (const profile of data ?? []) profiles.set(profile.id, profile);
+    }
+    return messages.map(message => {
+      const profile = profiles.get(message.sender_id);
+      return { ...message, sender_name: profile?.full_name?.trim() || null, sender_role: profile?.role || null };
+    });
   }
 
   private assertParticipant(user: AuthenticatedUser, ticket: Ticket) {
@@ -126,11 +125,12 @@ export class TicketsService {
     this.assertParticipant(user, ticket);
     if (['closed', 'resolved'].includes(ticket.status))
       throw new BadRequestException('Ticket is closed');
-    return this.rpc('send_message', {
+    const message = await this.rpc('send_message', {
       p_ticket_id: id,
       p_actor_id: user.id,
       p_body: body.trim(),
     });
+    return (await this.enrichMessages([message]))[0];
   }
   async claim(user: AuthenticatedUser, id: string) {
     await this.ticket(user, id);

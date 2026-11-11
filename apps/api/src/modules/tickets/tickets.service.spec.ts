@@ -1,3 +1,6 @@
+import { ValidationPipe } from '@nestjs/common';
+import { SendMessageDto } from './dto/send-message.dto.js';
+import { TicketsController } from './tickets.controller.js';
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { TicketsService } from './tickets.service.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
@@ -63,62 +66,38 @@ describe('support ticket conversation access', () => {
     expect(query.eq).toHaveBeenCalledWith('id', 'ticket');
     expect(query.or).toHaveBeenCalledWith('assigned_to.is.null,assigned_to.eq.agent');
   });
-  it.each([
-    { role: 'soporte', fullName: ' Ana López ', expectedName: 'Ana López' },
-    { role: 'soporte', fullName: null, expectedName: null },
-    { role: 'estudiante', fullName: 'Ana López', expectedName: undefined },
-  ])(
-    'includes the student profile name only for assigned support ($role, $fullName)',
-    async ({ role, fullName, expectedName }) => {
-      const messages = [
-        { id: 'one', sender_id: 'student', body: 'Necesito ayuda' },
-        { id: 'two', sender_id: 'agent', body: 'Te ayudo' },
-      ];
-      const query: any = {
-        select: () => query,
-        eq: () => query,
-        order: () => query,
-        maybeSingle: async () => ({
-          data: {
-            id: 'ticket',
-            student_id: 'student',
-            assigned_to: 'agent',
-            status: 'in_progress',
-          },
-          error: null,
-        }),
-        range: async () => ({ data: messages, error: null }),
-      };
-      const profile: any = {
-        select: vi.fn(() => profile),
-        eq: vi.fn(() => profile),
-        maybeSingle: async () => ({
-          data: fullName === null ? null : { full_name: fullName },
-          error: null,
-        }),
-      };
-      const schema = vi.fn((name) => ({
-        from: () => (name === 'iam' ? profile : query),
-      }));
-      const service = new TicketsService({ client: { schema } } as any);
-      const result = await service.messages(
-        actor(role, role === 'soporte' ? 'agent' : 'student'),
-        'ticket',
-      );
-      expect(result[0]).toEqual(
-        role === 'soporte'
-          ? { ...messages[0], sender_name: expectedName }
-          : messages[0],
-      );
-      expect(result[1]).toEqual(messages[1]);
-      if (role === 'soporte') {
-        expect(profile.select).toHaveBeenCalledWith('full_name');
-        expect(profile.eq).toHaveBeenCalledWith('id', 'student');
-      } else {
-        expect(schema).not.toHaveBeenCalledWith('iam');
-      }
-    },
-  );
+  it.each(['estudiante', 'soporte', 'admin'])('enriches actual senders for viewer %s in one profile batch', async role => {
+    const messages = [{ id: 'one', sender_id: 'student', body: 'Ayuda' }, { id: 'two', sender_id: 'agent', body: 'Hola' }, { id: 'three', sender_id: 'deleted', body: 'Anterior' }];
+    const query: any = { select: () => query, eq: () => query, order: () => query,
+      maybeSingle: async () => ({ data: { id: 'ticket', student_id: 'student', assigned_to: 'agent', status: 'open' }, error: null }),
+      range: async () => ({ data: messages, error: null }) };
+    const profiles: any = { select: () => profiles, in: vi.fn(async () => ({ data: [{ id: 'student', full_name: ' Ana ', role: 'estudiante' }, { id: 'agent', full_name: ' Luis ', role: 'soporte' }], error: null })) };
+    const service = new TicketsService({ client: { schema: (name: string) => ({ from: () => name === 'iam' ? profiles : query }) } } as any);
+    expect(await service.messages(actor(role, role === 'soporte' ? 'agent' : 'student'), 'ticket')).toEqual([{ ...messages[0], sender_name: 'Ana', sender_role: 'estudiante' }, { ...messages[1], sender_name: 'Luis', sender_role: 'soporte' }, { ...messages[2], sender_name: null, sender_role: null }]);
+    expect(profiles.in).toHaveBeenCalledExactlyOnceWith('id', ['student', 'agent', 'deleted']);
+  });
+  it('batches profile lookups across 500 distinct senders without losing message order', async () => {
+    const messages = Array.from({ length: 501 }, (_, index) => ({ id: String(index), sender_id: 'sender-' + index, body: 'Message ' + index }));
+    const query: any = { select: () => query, eq: () => query, order: () => query,
+      maybeSingle: async () => ({ data: { id: 'ticket', student_id: 'student', assigned_to: 'agent', status: 'open' }, error: null }),
+      range: async (from: number, to: number) => ({ data: messages.slice(from, to + 1), error: null }) };
+    const profiles: any = { select: () => profiles, in: vi.fn(async (_column: string, ids: string[]) => ({ data: ids.map(id => ({ id, full_name: id, role: id === 'sender-500' ? 'admin' : 'estudiante' })), error: null })) };
+    const service = new TicketsService({ client: { schema: (name: string) => ({ from: () => name === 'iam' ? profiles : query }) } } as any);
+    const result = await service.messages(actor(), 'ticket');
+    expect(result).toHaveLength(501);
+    expect(result[0]).toMatchObject({ id: '0', sender_name: 'sender-0', sender_role: 'estudiante' });
+    expect(result[500]).toMatchObject({ id: '500', sender_name: 'sender-500', sender_role: 'admin' });
+    expect(profiles.in.mock.calls.map(call => call[1].length)).toEqual([500, 1]);
+  });
+  it('enriches a sent message from its actual profile', async () => {
+    const { service, rpc } = setup();
+    rpc.mockResolvedValueOnce({ data: { id: 'message', sender_id: 'student', body: 'Hello' }, error: null } as any);
+    const profiles: any = { select: () => profiles, in: async () => ({ data: [{ id: 'student', full_name: ' Ana ', role: 'estudiante' }], error: null }) };
+    const original = (service as any).supabase.client.schema;
+    (service as any).supabase.client.schema = (name: string) => name === 'iam' ? { from: () => profiles } : original(name);
+    expect(await service.send(actor(), 'ticket', ' Hello ')).toEqual({ id: 'message', sender_id: 'student', body: 'Hello', sender_name: 'Ana', sender_role: 'estudiante' });
+    expect(rpc).toHaveBeenCalledWith('send_message', { p_ticket_id: 'ticket', p_actor_id: 'student', p_body: 'Hello' });
+  });
   it('denies an unassigned agent before looking up the student name', async () => {
     const { service, schema } = setup();
     await expect(
@@ -229,6 +208,8 @@ describe('support ticket conversation access', () => {
       expect(await service.send(user, 'ticket', 'Hello')).toEqual({
         id: 'message',
         body: 'Hello',
+        sender_name: null,
+        sender_role: null,
       });
       expect(rpc).toHaveBeenCalledWith('send_message', {
         p_ticket_id: 'ticket',
@@ -259,5 +240,16 @@ describe('support ticket conversation access', () => {
       p_ticket_id: 'ticket',
       p_actor_id: 'agent',
     });
+  });
+});
+
+describe('ticket author metadata input boundary', () => {
+  it('strips spoofed metadata and forwards only body with authenticated identity', async () => {
+    const dto = await new ValidationPipe({ whitelist: true, transform: true }).transform({ body: 'Hello', sender_role: 'admin', sender_name: 'Forged', sender_id: 'admin' }, { type: 'body', metatype: SendMessageDto });
+    expect(Object.keys(dto)).toEqual(['body']);
+    const send = vi.fn(async () => ({ id: 'message', sender_role: 'estudiante' }));
+    const controller = new TicketsController({ send } as any);
+    expect(await controller.send(actor(), 'ticket', dto)).toEqual({ id: 'message', sender_role: 'estudiante' });
+    expect(send).toHaveBeenCalledExactlyOnceWith(actor(), 'ticket', 'Hello');
   });
 });
