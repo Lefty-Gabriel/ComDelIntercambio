@@ -12,6 +12,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 export class ModuleInputDto {
   @IsString() @MinLength(2) @MaxLength(160) title!: string;
@@ -61,4 +62,13 @@ export class ListAccessDto {
   @IsOptional() @IsUUID() courseId?: string;
   @IsOptional() @IsUUID() studentId?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) page?: number;
+}
+
+export class MentorProfileDto {
+  @IsString() @MinLength(2) @MaxLength(120) fullName!: string;
+  @IsString() @MaxLength(160) title!: string;
+  @IsString() @MaxLength(160) company!: string;
+  @IsString() @MaxLength(2000) bio!: string;
+  @IsString() @MaxLength(2048) @ValidateIf((_, value) => value !== '') @IsUrl({ protocols: ['https', 'http'], require_protocol: true }) linkedin!: string;
+  @IsString() @MaxLength(2048) @ValidateIf((_, value) => value !== '') @IsUrl({ protocols: ['https', 'http'], require_protocol: true }) website!: string;
 }

@@ -23,6 +23,11 @@ function setup() {
   return { service, insert, upsert, rpc, courses };
 }
 describe('academic notifications', () => {
+  it.each(['question', 'answer'])('includes the lesson destination for %s notifications', async type => {
+    const { service, rpc } = setup();
+    rpc.mockResolvedValueOnce({ data: [{ id: 'lesson-question:question-id:lesson-id', type, course_id: 'course', is_read: false }] as any, error: null });
+    expect(await service.list(actor())).toEqual([expect.objectContaining({ type, questionId: 'question-id', lessonId: 'lesson-id', courseId: 'course' })]);
+  });
   it('exposes a support notification destination from the persisted ticket id', async () => {
     const { service, rpc } = setup();
     rpc.mockResolvedValueOnce({ data: [{ id: 'support:ticket-id:event-id', type: 'support', title: 'Reply', is_read: false }] as any, error: null });

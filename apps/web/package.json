@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "oxlint",
-    "preview": "vite preview"
+    "dev": "node ../../scripts/run-community-frontend.mjs dev",
+    "build": "node ../../scripts/run-community-frontend.mjs build",
+    "lint": "node ../../scripts/run-community-frontend.mjs lint",
+    "preview": "node ../../scripts/run-community-frontend.mjs preview"
   },
   "dependencies": {
     "react": "^19.3.1",

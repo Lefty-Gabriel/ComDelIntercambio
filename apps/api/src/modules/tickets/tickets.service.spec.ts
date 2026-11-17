@@ -31,6 +31,23 @@ function setup(
   return { service, rpc, schema };
 }
 describe('support ticket conversation access', () => {
+  it.each(['estudiante', 'mentor', 'admin'])('rejects custom option writes by %s', async role => {
+    const { service, rpc, schema } = setup();
+    await expect(service.createOption(actor(role), 'status', 'Esperando respuesta')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.customStatus(actor(role), 'ticket', 'option')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(schema).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+  it('passes the authenticated support identity to the custom status permission check', async () => {
+    const { service, rpc } = setup();
+    await service.customStatus(actor('soporte', 'agent'), 'ticket', 'option');
+    expect(rpc).toHaveBeenCalledWith('set_custom_ticket_status', { p_ticket_id: 'ticket', p_actor_id: 'agent', p_option_id: 'option' });
+  });
+  it('rejects blank custom definitions before accessing storage', async () => {
+    const { service, schema } = setup();
+    await expect(service.createOption(actor('soporte'), 'status', '  ')).rejects.toBeInstanceOf(BadRequestException);
+    expect(schema).not.toHaveBeenCalled();
+  });
   it('only the assigned support agent can label or resolve a case', async () => {
     const { service, rpc } = setup();
     await expect(service.organize(actor(), 'ticket', ['Acceso'])).rejects.toBeInstanceOf(ForbiddenException);
@@ -156,7 +173,7 @@ describe('support ticket conversation access', () => {
     const service = new TicketsService({
       client: { schema: () => ({ from: () => query }) },
     } as any);
-    expect(await service.list(actor())).toEqual([{ id: 'own-ticket' }]);
+    expect(await service.list(actor())).toEqual([{ id: 'own-ticket', student_name: 'Estudiante', student_avatar_url: null, agent_name: null }]);
     expect(eq).toHaveBeenCalledWith('student_id', 'student');
   });
   it('creates ticket and initial message using authenticated identity', async () => {
@@ -176,12 +193,12 @@ describe('support ticket conversation access', () => {
       ForbiddenException,
     );
   });
-  it('allows administrative supervision and enriches tickets without changing assignment', async () => {
+  it.each(['admin', 'soporte', 'estudiante'])('enriches ticket names for %s without changing assignment', async (role) => {
     const ticket = { id: 'ticket', student_id: 'student', assigned_to: 'agent', status: 'in_progress' };
-    const query: any = { select: () => query, order: () => query, range: async () => ({ data: [ticket], error: null }) };
-    const profiles: any = { select: () => profiles, in: async () => ({ data: [{ id: 'student', full_name: 'Student name' }, { id: 'agent', full_name: 'Agent name' }], error: null }) };
+    const query: any = { select: () => query, eq: () => query, order: () => query, range: async () => ({ data: [ticket], error: null }) };
+    const profiles: any = { select: () => profiles, in: async () => ({ data: [{ id: 'student', full_name: 'Student name', avatar_url: 'https://example.com/student.jpg' }, { id: 'agent', full_name: 'Agent name' }], error: null }) };
     const service = new TicketsService({ client: { schema: (name: string) => ({ from: () => name === 'iam' ? profiles : query }) } } as any);
-    expect(await service.list(actor('admin'))).toEqual([{ ...ticket, student_name: 'Student name', agent_name: 'Agent name' }]);
+    expect(await service.list(actor(role))).toEqual([{ ...ticket, student_name: 'Student name', student_avatar_url: 'https://example.com/student.jpg', agent_name: 'Agent name' }]);
   });
   it('keeps administrative supervision read only for all ticket mutations', async () => {
     const { service, rpc } = setup();

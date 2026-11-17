@@ -1,0 +1,12 @@
+﻿begin;
+create temporary table suspension_counter_check(status text, suspension_count integer default 0);
+create trigger test_counter before insert or update on suspension_counter_check for each row execute function courses.track_enrollment_suspensions();
+insert into suspension_counter_check(status) values ('active');
+update suspension_counter_check set status='suspended';
+update suspension_counter_check set status='suspended';
+do $$ begin if (select suspension_count from suspension_counter_check) <> 1 then raise exception 'Repeated saves counted twice'; end if; end $$;
+update suspension_counter_check set status='active';
+update suspension_counter_check set status='suspended';
+do $$ begin if (select suspension_count from suspension_counter_check) <> 2 then raise exception 'Second suspension not counted'; end if; end $$;
+select suspension_count=2 as counter_verified from suspension_counter_check;
+rollback;

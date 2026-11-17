@@ -6,10 +6,19 @@ import { CurrentUser } from './decorators/current-user.decorator.js';
 import { LoginDto } from './dto/login.dto.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
+import { RecoverPasswordDto, ResetPasswordDto } from './dto/password-recovery.dto.js';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
+  @Post('recover-password')
+  recoverPassword(@Body() dto: RecoverPasswordDto) {
+    return this.auth.recoverPassword(dto.email);
+  }
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.auth.resetPassword(dto.accessToken, dto.password, dto.challenge);
+  }
 
   @Post('login')
   login(@Body() dto: LoginDto) {

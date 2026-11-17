@@ -18,6 +18,7 @@ interface CourseRow {
   title: string;
   description: string;
   content_type?: string;
+  thumbnail_url?: string;
   docente_id: string | null;
   created_at: string;
 }
@@ -137,7 +138,7 @@ export class StudentDashboardService {
       .schema('courses')
       .from('active_enrollments')
       .select(
-        'access_type, expires_at, can_view_content, can_join_live, course:courses(id, title, description, content_type, category, level, docente_id, created_at)',
+        'access_type, expires_at, can_view_content, can_join_live, course:courses(id, title, description, content_type, category, level, docente_id, created_at, thumbnail_url)',
       )
       .eq('student_id', user.id)
       .eq('status', 'active');
@@ -280,6 +281,7 @@ export class StudentDashboardService {
         id: course.id,
         title: course.title,
         description: course.description,
+        thumbnail: course.thumbnail_url || "",
         contentType: course.content_type || 'course',
         category: course.category || '',
         level: course.level || '',

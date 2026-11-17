@@ -2,12 +2,16 @@ import {
   BadRequestException,
   Injectable,
   UnauthorizedException,
+  HttpException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { SupabaseService } from '../../common/supabase/supabase.service.js';
 import type { AuthenticatedUser } from './auth.types.js';
 import { ROLES } from './auth.types.js';
 import type { LoginDto } from './dto/login.dto.js';
 import type { UpdateProfileDto } from './dto/update-profile.dto.js';
+import { randomBytes } from 'node:crypto';
+import { LoginSecurity, securityKey } from './login-security.js';
 
 interface ProfileRow {
   id: string;
@@ -28,15 +32,105 @@ interface ProfileRow {
 @Injectable()
 export class AuthService {
   constructor(private readonly supabase: SupabaseService) {}
+  async recoverPassword(email: string) {
+    const frontend = (
+      process.env.FRONTEND_URL || 'http://localhost:5174'
+    ).replace(/\/$/, '');
+    const challenge = randomBytes(32).toString('hex');
+    const stored = await this.supabase.client
+      .schema('iam')
+      .from('password_recovery_challenges')
+      .insert({
+        key: securityKey('recovery', challenge),
+        account_key: securityKey('account', email),
+      });
+    if (stored.error)
+      throw new ServiceUnavailableException(
+        'No se pudo preparar la recuperación. Intenta nuevamente.',
+      );
+    const { error } = await this.supabase.anon.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+      {
+        redirectTo: `${frontend}/recuperar-contrasena?challenge=${challenge}`,
+      },
+    );
+    if (error)
+      throw new BadRequestException(
+        'No se pudo enviar el enlace. Espera unos minutos e intenta nuevamente.',
+      );
+    return {
+      message:
+        'Si el correo está registrado, recibirás un enlace para recuperar tu contraseña.',
+    };
+  }
+  async resetPassword(
+    accessToken: string,
+    password: string,
+    challenge?: string,
+  ) {
+    const { data, error } = await this.supabase.anon.auth.getUser(accessToken);
+    if (error || !data.user)
+      throw new UnauthorizedException(
+        'El enlace no es válido o ha vencido. Solicita uno nuevo.',
+      );
+    if (!challenge || !data.user.email) {
+      throw new UnauthorizedException(
+        'Solicita un enlace de recuperación para cambiar la contraseña.',
+      );
+    }
+    const consumed = await this.supabase.client
+      .schema('iam')
+      .rpc('consume_recovery_challenge', {
+        p_key: securityKey('recovery', challenge),
+        p_account_key: securityKey('account', data.user.email),
+      });
+    if (consumed.error || !consumed.data)
+      throw new UnauthorizedException(
+        'El enlace ya se utilizó o ha vencido. Solicita uno nuevo.',
+      );
+    const updated = await this.supabase.client.auth.admin.updateUserById(
+      data.user.id,
+      { password },
+    );
+    if (updated.error)
+      throw new BadRequestException(
+        'No se pudo actualizar la contraseña. Usa una contraseña diferente e intenta de nuevo.',
+      );
+    return { message: 'Contraseña actualizada. Ya puedes iniciar sesión.' };
+  }
 
   async login(dto: LoginDto) {
-    const { data, error } = await this.supabase.anon.auth.signInWithPassword({
-      email: dto.email,
-      password: dto.password,
-    });
+    const security = new LoginSecurity(this.supabase);
+    const attempt = await security.begin(dto.email);
+    let result;
+    try {
+      result = await this.supabase.anon.auth.signInWithPassword({
+        email: dto.email.trim().toLowerCase(),
+        password: dto.password,
+      });
+    } catch {
+      await security.finish(attempt, false, false);
+      throw new ServiceUnavailableException(
+        'No se pudo conectar al servicio de acceso. Intenta nuevamente.',
+      );
+    }
+    const { data, error } = result;
+    const invalid =
+      error?.code === 'invalid_credentials' ||
+      (!error?.code && error?.status === 400);
+    const finished = await security.finish(
+      attempt,
+      !error && Boolean(data.session),
+      invalid,
+    );
 
     if (error || !data.session) {
-      throw new UnauthorizedException('Invalid credentials');
+      if (finished.blocked)
+        throw new HttpException(
+          'Acceso bloqueado temporalmente tras 5 intentos fallidos. Intenta de nuevo en 15 minutos.',
+          429,
+        );
+      throw new UnauthorizedException('Correo o contraseña incorrectos.');
     }
 
     return {
@@ -96,12 +190,11 @@ export class AuthService {
     if (dto.bio !== undefined) updates.bio = dto.bio.trim();
     if (dto.avatarUrl !== undefined) updates.avatar_url = dto.avatarUrl.trim();
     if (dto.email !== undefined) {
-      const changed = await this.supabase.client.auth.admin.updateUserById(id, {
-        email: dto.email,
-        email_confirm: true,
-      });
-      if (changed.error) throw new BadRequestException(changed.error.message);
-      updates.email = dto.email.trim().toLowerCase();
+      const current = await this.getProfile(id);
+      if (dto.email.trim().toLowerCase() !== current.email.toLowerCase())
+        throw new BadRequestException(
+          'Por seguridad, el cambio de correo requiere verificación. Solicita el cambio al administrador.',
+        );
     }
     updates.updated_at = new Date().toISOString();
     const { error } = await this.supabase.client

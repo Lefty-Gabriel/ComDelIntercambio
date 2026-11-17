@@ -91,7 +91,9 @@ export class UsersService {
     return { studentId: data.student_id, mentorId: data.mentor_id };
   }
 
-  async create(dto: CreateUserDto): Promise<AuthenticatedUser> {
+  async create(dto: CreateUserDto, user: AuthenticatedUser): Promise<AuthenticatedUser> {
+    if (user.role !== 'admin') throw new ForbiddenException('Administrator access required');
+    if (!ROLES.includes(dto.role)) throw new BadRequestException('Invalid profile role');
     const { data, error } = await this.supabase.client.auth.admin.createUser({
       email: dto.email.trim().toLowerCase(),
       password: dto.password,

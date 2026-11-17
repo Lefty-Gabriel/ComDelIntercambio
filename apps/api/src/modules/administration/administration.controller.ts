@@ -20,6 +20,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { AdministrationService } from './administration.service.js';
 import {
+  MentorProfileDto,
   AccessInputDto,
   GrantAccessDto,
   LessonInputDto,
@@ -33,6 +34,11 @@ import {
 @Roles('admin')
 export class AdministrationController {
   constructor(private readonly administration: AdministrationService) {}
+  @Patch('mentors/:id/profile') updateMentorProfile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MentorProfileDto,
+  ) { return this.administration.updateMentorProfile(user, id, dto); }
   @Patch('courses/:courseId') updateCourse(
     @CurrentUser() user: AuthenticatedUser,
     @Param('courseId', ParseUUIDPipe) id: string,

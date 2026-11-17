@@ -1,3 +1,5 @@
+import { TicketStatusDto } from './dto/ticket-status.dto.js';
+import { CreateTicketOptionDto, CustomTicketStatusDto } from './dto/ticket-options.dto.js';
 import {
   Body,
   Controller,
@@ -23,6 +25,23 @@ import { TicketLabelsDto } from './dto/ticket-labels.dto.js';
 @Roles('estudiante', 'soporte', 'admin')
 export class TicketsController {
   constructor(private readonly tickets: TicketsService) {}
+  @Post('options/:id') @Roles('soporte') @HttpCode(200) editOption(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateTicketOptionDto) {
+    return this.tickets.editOption(user, id, dto.name);
+  }
+  @Get('options') @Roles('soporte', 'admin') options(@CurrentUser() user: AuthenticatedUser) {
+    return this.tickets.options(user);
+  }
+  @Post('options') @Roles('soporte') option(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateTicketOptionDto) {
+    return this.tickets.createOption(user, dto.kind, dto.name);
+  }
+  @Post(':id/custom-status') @Roles('soporte') @HttpCode(200) customStatus(
+    @CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CustomTicketStatusDto,
+  ) { return this.tickets.customStatus(user, id, dto.optionId); }
+  @Post(':id/status') @Roles('soporte') @HttpCode(200) status(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TicketStatusDto,
+  ) { return this.tickets.setStatus(user, id, dto.status); }
   @Post(':id/labels') @Roles('soporte') @HttpCode(200) labels(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,

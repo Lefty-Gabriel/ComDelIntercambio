@@ -1,7 +1,14 @@
+import { FileInterceptor } from '@nestjs/platform-express';
 import { EnrollByEmailDto } from './dto/enroll-by-email.dto.js';
 import {
   Body,
+  BadRequestException,
+  UploadedFile,
+  UseInterceptors,
   Controller,
+  Delete,
+  HttpCode,
+  ParseUUIDPipe,
   Get,
   Param,
   Patch,
@@ -24,10 +31,33 @@ import { EnrollDto } from './dto/enroll.dto.js';
 export class CoursesController {
   constructor(private readonly courses: CoursesService) {}
 
+  @Delete(':courseId/cover')
+  @Roles('admin')
+  removeCover(@Param('courseId', ParseUUIDPipe) courseId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.courses.removeCover(courseId, user);
+  }
+
+  @Post(':courseId/cover')
+  @Roles('admin')
+  @UseInterceptors(FileInterceptor('image', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  uploadCover(@Param('courseId', ParseUUIDPipe) courseId: string, @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: { buffer: Buffer; mimetype: string; size: number }) {
+    if (!file) throw new BadRequestException('Selecciona una imagen');
+    return this.courses.uploadCover(courseId, file, user);
+  }
+
+  @Delete(':courseId')
+  @Roles('admin')
+  @HttpCode(204)
+  remove(@Param('courseId', ParseUUIDPipe) courseId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.courses.remove(courseId, user);
+  }
+
   @Post()
   @Roles('admin')
-  create(@Body() dto: CreateCourseDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.courses.create(dto, user);
+  @UseInterceptors(FileInterceptor('image', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  create(@Body() dto: CreateCourseDto, @CurrentUser() user: AuthenticatedUser, @UploadedFile() image?: { buffer: Buffer; mimetype: string; size: number }) {
+    return this.courses.create(dto, user, image);
   }
 
   @Get()

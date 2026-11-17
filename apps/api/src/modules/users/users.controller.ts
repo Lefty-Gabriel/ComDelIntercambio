@@ -42,8 +42,8 @@ export class UsersController {
 
   @Post()
   @Roles('admin')
-  create(@Body() dto: CreateUserDto) {
-    return this.users.create(dto);
+  create(@Body() dto: CreateUserDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.users.create(dto, user);
   }
 
   @Patch(':id/role')

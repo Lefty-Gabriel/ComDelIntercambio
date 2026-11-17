@@ -1,36 +1,13 @@
-# React + TypeScript + Vite
+# Frontend de Comunidad
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+El portal antiguo de pruebas fue eliminado. Este workspace conserva los comandos de arranque y los clientes de API utilizados por pruebas de regresion.
 
-Currently, two official plugins are available:
+- `npm run dev --workspace web` inicia la plataforma de Comunidad.
+- `npm run build --workspace web` compila la misma plataforma.
+- `npm run preview --workspace web` sirve su compilacion.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+El lanzador usa la carpeta `traction-frontend` de este entorno. Para otra ubicacion, define `COMMUNITY_FRONTEND_DIR` con la ruta absoluta del frontend antes de ejecutar el comando.
 
-## React Compiler
+Se utiliza el puerto 5174 con `strictPort`: si esta ocupado, el proceso informa el conflicto en vez de cambiar silenciosamente a otro puerto. Deten el servidor antiguo antes de iniciar el nuevo.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
-
-## API configuration
-
-Copy `apps/web/.env.example` to `apps/web/.env.local` and set `VITE_API_URL` to the deployed API origin before building. Vite reads environment files from `apps/web`; these values are public and embedded in the browser bundle. The development fallback is `http://localhost:3000`.
+La recuperacion de contrasena se atiende en `/recuperar-contrasena` por la plataforma de Comunidad. Un enlace vencido debe solicitarse nuevamente.

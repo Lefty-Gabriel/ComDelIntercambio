@@ -10,6 +10,7 @@ import { SupabaseService } from '../../common/supabase/supabase.service.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import type { CreateCourseDto } from '../courses/dto/create-course.dto.js';
 import type {
+  MentorProfileDto,
   AccessInputDto,
   GrantAccessDto,
   LessonInputDto,
@@ -23,6 +24,16 @@ export class AdministrationService {
   private admin(user: AuthenticatedUser) {
     if (user.role !== 'admin')
       throw new ForbiddenException('Administrator access required');
+  }
+  async updateMentorProfile(user: AuthenticatedUser, id: string, dto: MentorProfileDto) {
+    this.admin(user);
+    const { data, error } = await this.supabase.client.schema('iam').from('profiles')
+      .update({ full_name: dto.fullName.trim(), title: dto.title.trim(), company: dto.company.trim(), bio: dto.bio.trim(), linkedin: dto.linkedin.trim(), website: dto.website.trim() })
+      .eq('id', id).eq('role', 'mentor')
+      .select('id,email,full_name,role,title,company,bio,linkedin,website,avatar_url,created_at').maybeSingle();
+    if (error) this.failure(error);
+    if (!data) throw new NotFoundException('Mentor no encontrado');
+    return { id: data.id, email: data.email, fullName: data.full_name, role: data.role, title: data.title, company: data.company, bio: data.bio, linkedin: data.linkedin, website: data.website, avatarUrl: data.avatar_url, createdAt: data.created_at };
   }
   private async assertCourseEditor(user: AuthenticatedUser, courseId: string) {
     if (!['admin', 'mentor'].includes(user.role)) throw new ForbiddenException('Academic editing access required');
@@ -140,7 +151,7 @@ export class AdministrationService {
     const { data: videos, error: ve } = await this.supabase.client
       .schema('video')
       .from('videos')
-      .select('id,title,status')
+      .select('id,title,status,external_url,source_type,duration_seconds')
       .eq('course_id', courseId)
       .eq('status', 'ready');
     if (ve) this.failure(ve);
@@ -330,7 +341,7 @@ export class AdministrationService {
     this.admin(user);
     const page = input.page || 0;
     let query = this.db('enrollments').select(
-      'id,course_id,student_id,status,access_type,expires_at,created_at',
+      'id,course_id,student_id,status,access_type,expires_at,created_at,suspension_count',
       { count: 'exact' },
     );
     if (input.courseId) query = query.eq('course_id', input.courseId);

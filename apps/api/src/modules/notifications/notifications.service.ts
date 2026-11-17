@@ -23,6 +23,8 @@ export class NotificationsService {
       id: row.id,
       type: row.type,
       courseId: row.course_id,
+      ...(['question', 'answer'].includes(row.type) ? { questionId: row.id.split(':')[1], lessonId: row.id.split(':')[2] } : {}),
+      ...(row.type === "live" ? { sessionId: row.id.split(":")[1] } : {}),
       ...(row.type === 'support' ? { ticketId: row.id.split(':')[1] } : {}),
       title: row.title,
       description: row.description,

@@ -257,6 +257,24 @@ export class VideosService {
     return this.mapVideo(row);
   }
 
+  async discussion(user: AuthenticatedUser, id: string) {
+    await this.getById(user, id);
+    let lessonQuery = this.supabase.client.schema('courses').from('lessons').select('id,title').eq('video_id', id);
+    if (user.role === 'estudiante') lessonQuery = lessonQuery.eq('is_published', true);
+    const { data: lessons, error: lessonError } = await lessonQuery;
+    if (lessonError) throw new BadRequestException(lessonError.message);
+    if (!lessons?.length) return { lessons: [], questions: [], canReply: user.role === 'mentor', canAsk: false };
+    let query = this.supabase.client.schema('courses').from('lesson_questions').select('id,lesson_id,student_id,question,mentor_reply,answered_at,created_at').in('lesson_id', lessons.map(lesson => lesson.id)).order('created_at', { ascending: false }).limit(100);
+    if (user.role === 'estudiante') query = query.eq('student_id', user.id);
+    const { data: questions, error } = await query;
+    if (error) throw new BadRequestException(error.message);
+    const ids = [...new Set((questions || []).map(question => question.student_id))];
+    const profiles = ids.length ? await this.supabase.client.schema('iam').from('profiles').select('id,full_name,avatar_url').in('id', ids) : { data: [], error: null };
+    if (profiles.error) throw new BadRequestException(profiles.error.message);
+    const people = new Map((profiles.data || []).map(profile => [profile.id, profile]));
+    return { lessons, canReply: user.role === 'mentor', canAsk: user.role === 'estudiante', questions: (questions || []).map(question => ({ id: question.id, lessonId: question.lesson_id, lessonTitle: lessons.find(lesson => lesson.id === question.lesson_id)?.title || '', studentName: people.get(question.student_id)?.full_name || 'Estudiante', studentAvatar: people.get(question.student_id)?.avatar_url || '', question: question.question, mentorReply: question.mentor_reply || '', answeredAt: question.answered_at, createdAt: question.created_at })) };
+  }
+
   async playback(user: AuthenticatedUser, id: string) {
     const row = await this.getRowOrFail(id);
     await this.assertCanViewVideo(user, row);

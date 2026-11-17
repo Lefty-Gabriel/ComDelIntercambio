@@ -1,3 +1,4 @@
+import { ZoomMeetingService } from './zoom-meeting.service.js';
 import { UpdateJoinLinkDto } from './dto/update-join-link.dto.js';
 import {
   Body,
@@ -22,7 +23,7 @@ import { LiveSessionsService } from './live-sessions.service.js';
 @Controller('live-sessions')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class LiveSessionsController {
-  constructor(private readonly sessions: LiveSessionsService) {}
+  constructor(private readonly sessions: LiveSessionsService, private readonly zoom: ZoomMeetingService) {}
 
   @Post()
   @Roles('admin', 'mentor')
@@ -55,6 +56,10 @@ export class LiveSessionsController {
   remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.sessions.remove(user, id);
   }
+
+  @Post(':id/zoom-join')
+  @Roles('admin', 'mentor', 'estudiante')
+  zoomJoin(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.zoom.join(user, id); }
 
   @Get()
   list(@CurrentUser() user: AuthenticatedUser) {

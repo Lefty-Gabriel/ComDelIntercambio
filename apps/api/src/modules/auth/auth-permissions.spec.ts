@@ -30,9 +30,16 @@ describe('HTTP authentication and role assignment', () => {
   }));
   beforeAll(async () => {
     const db = {
+      anon: { auth: { signInWithPassword: async ({ email, password }: { email: string; password: string }) => {
+        const role = email.split('@')[0];
+        return password === 'correct-password' && ['admin','mentor','estudiante','soporte'].includes(role)
+          ? { data: { user: { id: role }, session: { access_token: role, refresh_token: 'refresh', expires_at: 9999999999 } }, error: null }
+          : { data: { session: null }, error: { message: 'Invalid credentials' } };
+      } } },
       client: {
         auth: { admin: { createUser } },
         schema: () => ({
+          rpc: async (name: string) => ({ data: name === 'begin_login' ? { lease: 'test-lease' } : { blocked: false }, error: null }),
           from: () => {
             let id = 'estudiante';
             let role: string | undefined;
@@ -94,6 +101,27 @@ describe('HTTP authentication and role assignment', () => {
     await app?.close();
   });
   beforeEach(() => createUser.mockClear());
+  it.each(['admin','mentor','estudiante','soporte'])('login returns the persisted identity and role for %s', async role => {
+    const response = await request(app.getHttpServer()).post('/auth/login').send({ email: `${role}@example.com`, password: 'correct-password' });
+    expect(response.status).toBe(201);
+    expect(response.body.user.role).toBe(role);
+    expect(response.body.accessToken).toBe(role);
+  });
+  it('rejects wrong passwords and unauthenticated protected requests', async () => {
+    expect((await request(app.getHttpServer()).post('/auth/login').send({ email: 'admin@example.com', password: 'wrong' })).status).toBe(401);
+    for (const path of ['/auth/me','/users']) expect((await request(app.getHttpServer()).get(path)).status).toBe(401);
+  });
+  it.each(['admin','mentor','estudiante','soporte'])('admin registers a working profile with role %s', async role => {
+    const response = await request(app.getHttpServer()).post('/users').set('Authorization','Bearer admin').send({ email: `${role}@example.com`, fullName: 'Registered Person', password: 'password123', role });
+    expect(response.status).toBe(201);
+    expect(response.body.role).toBe(role);
+    expect(createUser).toHaveBeenCalledOnce();
+  });
+  it.each(['mentor','estudiante','soporte'])('%s cannot register privileged accounts', async role => {
+    const response = await request(app.getHttpServer()).post('/users').set('Authorization',`Bearer ${role}`).send({email:'new@example.com',fullName:'New Person',password:'password123',role:'admin'});
+    expect(response.status).toBe(403);
+    expect(createUser).not.toHaveBeenCalled();
+  });
   it.each(['admin', 'mentor', 'estudiante', 'soporte'])(
     '%s can read own authenticated profile',
     async (role) => {

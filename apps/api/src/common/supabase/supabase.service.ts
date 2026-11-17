@@ -5,14 +5,15 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 @Injectable()
 export class SupabaseService {
   private clientInstance?: SupabaseClient;
-  private anonInstance?: SupabaseClient;
 
   constructor(private readonly config: ConfigService) {}
 
   get client(): SupabaseClient {
     if (!this.clientInstance) {
       const url = this.config.get<string>('SUPABASE_URL');
-      const serviceRoleKey = this.config.get<string>('SUPABASE_SERVICE_ROLE_KEY');
+      const serviceRoleKey = this.config.get<string>(
+        'SUPABASE_SERVICE_ROLE_KEY',
+      );
 
       if (!url || !serviceRoleKey) {
         throw new Error(
@@ -29,21 +30,18 @@ export class SupabaseService {
   }
 
   get anon(): SupabaseClient {
-    if (!this.anonInstance) {
-      const url = this.config.get<string>('SUPABASE_URL');
-      const anonKey = this.config.get<string>('SUPABASE_ANON_KEY');
+    const url = this.config.get<string>('SUPABASE_URL');
+    const anonKey = this.config.get<string>('SUPABASE_ANON_KEY');
 
-      if (!url || !anonKey) {
-        throw new Error(
-          'Missing SUPABASE_URL or SUPABASE_ANON_KEY. Check your .env (see .env.example).',
-        );
-      }
-
-      this.anonInstance = createClient(url, anonKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
+    if (!url || !anonKey) {
+      throw new Error(
+        'Missing SUPABASE_URL or SUPABASE_ANON_KEY. Check your .env (see .env.example).',
+      );
     }
 
-    return this.anonInstance;
+    // Each password operation has an isolated auth session.
+    return createClient(url, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
   }
 }

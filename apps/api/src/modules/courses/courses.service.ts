@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -17,6 +18,7 @@ export interface Course {
   createdBy: string | null;
   docenteId: string | null;
   createdAt: string;
+  thumbnail?: string;
 }
 
 interface CourseRow {
@@ -29,11 +31,47 @@ interface CourseRow {
   created_by: string | null;
   docente_id: string | null;
   created_at: string;
+  thumbnail_url?: string;
 }
 
 @Injectable()
 export class CoursesService {
   constructor(private readonly supabase: SupabaseService) {}
+
+  async removeCover(courseId: string, user: AuthenticatedUser): Promise<Course> {
+    if (user.role !== 'admin') throw new ForbiddenException('Administrator access required');
+    const { data, error } = await this.supabase.client.schema('courses').from('courses')
+      .update({ thumbnail_url: null, updated_at: new Date().toISOString() }).eq('id', courseId).select('*').maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('Course not found');
+    return this.mapCourse(data as CourseRow);
+  }
+
+  async uploadCover(courseId: string, file: { buffer: Buffer; mimetype: string; size: number }, user: AuthenticatedUser): Promise<Course> {
+    if (user.role !== 'admin') throw new ForbiddenException('Administrator access required');
+    const formats: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+    if (!formats[file.mimetype] || file.size > 5 * 1024 * 1024 || !file.size) throw new BadRequestException('Usa una imagen JPG, PNG o WebP de hasta 5 MB');
+    const table = this.supabase.client.schema('courses').from('courses');
+    const existing = await table.select('id').eq('id', courseId).maybeSingle();
+    if (existing.error) throw new BadRequestException(existing.error.message);
+    if (!existing.data) throw new NotFoundException('Course not found');
+    const path = courseId + '/' + randomUUID() + '.' + formats[file.mimetype];
+    const storage = this.supabase.client.storage.from('course-covers');
+    const uploaded = await storage.upload(path, file.buffer, { contentType: file.mimetype, upsert: false });
+    if (uploaded.error) throw new BadRequestException(uploaded.error.message);
+    const { data: publicUrl } = storage.getPublicUrl(path);
+    const { data, error } = await this.supabase.client.schema('courses').from('courses').update({ thumbnail_url: publicUrl.publicUrl, updated_at: new Date().toISOString() }).eq('id', courseId).select('*').maybeSingle();
+    if (error || !data) { await storage.remove([path]); throw new BadRequestException(error?.message || 'No se pudo guardar la portada'); }
+    return this.mapCourse(data as CourseRow);
+  }
+
+  async remove(courseId: string, user: AuthenticatedUser): Promise<void> {
+    if (user.role !== 'admin') throw new ForbiddenException('Administrator access required');
+    const { data, error } = await this.supabase.client.schema('courses').from('courses')
+      .delete().eq('id', courseId).select('id').maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('Course not found');
+  }
 
   async create(
     input: {
@@ -45,6 +83,7 @@ export class CoursesService {
       level?: string;
     },
     user: AuthenticatedUser,
+    image?: { buffer: Buffer; mimetype: string; size: number },
   ): Promise<Course> {
     if (user.role !== 'admin')
       throw new ForbiddenException('Administrator access required');
@@ -59,11 +98,23 @@ export class CoursesService {
       if (!mentor || mentor.role !== 'mentor')
         throw new BadRequestException('Selecciona una cuenta de mentor');
     }
+    let coverPath = "";
+    let coverUrl = "";
+    const storage = image ? this.supabase.client.storage.from('course-covers') : null;
+    if (image && storage) {
+      const formats: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+      if (!formats[image.mimetype] || image.size > 5 * 1024 * 1024 || !image.size) throw new BadRequestException('Usa JPG, PNG o WebP de hasta 5 MB');
+      coverPath = 'covers/' + randomUUID() + '.' + formats[image.mimetype];
+      const uploaded = await storage.upload(coverPath, image.buffer, { contentType: image.mimetype, upsert: false });
+      if (uploaded.error) throw new BadRequestException(uploaded.error.message);
+      coverUrl = storage.getPublicUrl(coverPath).data.publicUrl;
+    }
     const { data, error } = await this.supabase.client
       .schema('courses')
       .from('courses')
       .insert({
         title: input.title.trim(),
+        ...(coverUrl ? { thumbnail_url: coverUrl } : {}),
         category: input.category?.trim() || '',
         level: input.level?.trim() || '',
         description: input.description ?? '',
@@ -75,6 +126,7 @@ export class CoursesService {
       .single();
 
     if (error || !data) {
+      if (coverPath && storage) await storage.remove([coverPath]);
       throw new BadRequestException(
         error?.message ?? 'Could not create course',
       );
@@ -111,7 +163,7 @@ export class CoursesService {
       .schema('courses')
       .from('active_enrollments')
       .select(
-        'course:courses(id, title, description, content_type, category, level, created_by, docente_id, created_at)',
+        'course:courses(id, title, description, content_type, category, level, created_by, docente_id, created_at, thumbnail_url)',
       )
       .eq('student_id', user.id);
 
@@ -181,7 +233,7 @@ export class CoursesService {
       .schema('courses')
       .from('enrollments')
       .select(
-        'id,course_id,student_id,status,access_type,expires_at,created_at',
+        'id,course_id,student_id,status,access_type,expires_at,created_at,suspension_count',
       )
       .eq('course_id', courseId)
       .eq('student_id', studentId)
@@ -346,6 +398,7 @@ export class CoursesService {
       createdBy: row.created_by,
       docenteId: row.docente_id,
       createdAt: row.created_at,
+      thumbnail: row.thumbnail_url || "",
     };
   }
 }

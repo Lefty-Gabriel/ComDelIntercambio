@@ -45,7 +45,12 @@ export class JwtAuthGuard implements CanActivate {
 
     let payload: JWTPayload;
     try {
-      const verified = await jwtVerify(token, this.getJwks());
+      const url = this.config.get<string>('SUPABASE_URL')?.replace(/\/$/, '');
+      const verified = await jwtVerify(token, this.getJwks(), {
+        issuer: `${url}/auth/v1`,
+        audience: 'authenticated',
+        requiredClaims: ['sub', 'exp', 'iat'],
+      });
       payload = verified.payload;
     } catch {
       throw new UnauthorizedException('Invalid or expired token');
@@ -57,7 +62,7 @@ export class JwtAuthGuard implements CanActivate {
     const { data, error } = await this.supabase.client
       .schema('iam')
       .from('profiles')
-      .select('id, email, full_name, role, title, avatar_url')
+      .select('id, email, full_name, role, title, avatar_url, login_locked_until')
       .eq('id', userId)
       .single();
 
@@ -67,6 +72,9 @@ export class JwtAuthGuard implements CanActivate {
 
     if (!ROLES.includes(data.role as Role)) {
       throw new UnauthorizedException('Invalid profile role');
+    }
+    if (data.login_locked_until && new Date(data.login_locked_until).getTime() > Date.now()) {
+      throw new UnauthorizedException('Acceso bloqueado temporalmente. Intenta nuevamente en 15 minutos.');
     }
 
     request.user = {

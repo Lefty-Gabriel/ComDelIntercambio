@@ -18,6 +18,33 @@ export class TicketsService {
   private get db() {
     return this.supabase.client.schema('support');
   }
+  async editOption(user: AuthenticatedUser, id: string, name: string) {
+    if (user.role !== 'soporte') throw new ForbiddenException('Support access required');
+    name = name.trim().replace(/\s+/g, ' ');
+    if (name.length < 2 || name.length > 32) throw new BadRequestException('Escribe un nombre de 2 a 32 caracteres');
+    return this.rpc('rename_ticket_option', { p_actor_id: user.id, p_option_id: id, p_name: name });
+  }
+  async options(user: AuthenticatedUser) {
+    if (!['soporte', 'admin'].includes(user.role)) throw new ForbiddenException('Support access required');
+    return this.allPages((from, to) => {
+      let query = this.db.from('ticket_options').select('id,kind,name,owner_id');
+      if (user.role !== 'admin') query = query.eq('owner_id', user.id);
+      return query.order('name').order('id').range(from, to);
+    });
+  }
+  async createOption(user: AuthenticatedUser, kind: string, name: string) {
+    if (user.role !== 'soporte') throw new ForbiddenException('Support access required');
+    name = name.trim().replace(/\s+/g, ' ');
+    if (!['label', 'status'].includes(kind) || name.length < 2 || name.length > 32) throw new BadRequestException('Escribe un nombre de 2 a 32 caracteres');
+    if (kind === 'status' && ['pendiente', 'en atención', 'resuelto', 'cerrado'].includes(name.toLocaleLowerCase('es'))) throw new BadRequestException('Ese estado ya existe. Escribe un nombre personalizado.');
+    const { data, error } = await this.db.from('ticket_options').upsert({ owner_id: user.id, kind, name }, { onConflict: 'owner_id,kind,name' }).select('id,kind,name,owner_id').single();
+    if (error) throw new BadRequestException('No se pudo guardar la opción');
+    return data;
+  }
+  async customStatus(user: AuthenticatedUser, id: string, optionId: string) {
+    if (user.role !== 'soporte') throw new ForbiddenException('Support access required');
+    return this.rpc('set_custom_ticket_status', { p_ticket_id: id, p_actor_id: user.id, p_option_id: optionId });
+  }
   private assertRole(user: AuthenticatedUser) {
     if (!['estudiante', 'soporte', 'admin'].includes(user.role))
       throw new ForbiddenException('Student or support access required');
@@ -32,16 +59,17 @@ export class TicketsService {
         .order('id', { ascending: false })
         .range(from, to);
     });
-    if (user.role !== 'admin' || !tickets.length) return tickets;
+    if (!tickets.length) return tickets;
     const ids = [...new Set(tickets.flatMap(ticket => [ticket.student_id, ticket.assigned_to]).filter(Boolean))];
     const profiles: any[] = [];
     for (let start = 0; start < ids.length; start += 500) {
-      const { data, error } = await this.supabase.client.schema('iam').from('profiles').select('id,full_name').in('id', ids.slice(start, start + 500));
+      const { data, error } = await this.supabase.client.schema('iam').from('profiles').select('id,full_name,avatar_url').in('id', ids.slice(start, start + 500));
       if (error) throw new BadRequestException(error.message);
       profiles.push(...(data || []));
     }
     const names = new Map(profiles.map(profile => [profile.id, profile.full_name]));
-    return tickets.map(ticket => ({ ...ticket, student_name: names.get(ticket.student_id) || 'Estudiante', agent_name: names.get(ticket.assigned_to) || null }));
+    const avatars = new Map(profiles.map(profile => [profile.id, profile.avatar_url]));
+    return tickets.map(ticket => ({ ...ticket, student_name: names.get(ticket.student_id) || 'Estudiante', student_avatar_url: avatars.get(ticket.student_id) || null, agent_name: names.get(ticket.assigned_to) || null }));
   }
   private async allPages(
     fetchPage: (
@@ -137,6 +165,12 @@ export class TicketsService {
     if (user.role !== 'soporte')
       throw new ForbiddenException('Support access required');
     return this.rpc('claim_ticket', { p_ticket_id: id, p_actor_id: user.id });
+  }
+  async setStatus(user: AuthenticatedUser, id: string, status: string) {
+    if (user.role !== 'soporte') throw new ForbiddenException('Support access required');
+    if (!['open', 'in_progress', 'resolved', 'closed'].includes(status)) throw new BadRequestException('Invalid status');
+    await this.ticket(user, id);
+    return this.rpc('set_ticket_status', { p_ticket_id: id, p_actor_id: user.id, p_status: status });
   }
   async organize(user: AuthenticatedUser, id: string, labels?: string[]) {
     if (user.role !== 'soporte') throw new ForbiddenException('Support access required');

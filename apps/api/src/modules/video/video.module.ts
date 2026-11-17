@@ -1,3 +1,4 @@
+import { ZoomMeetingService } from './zoom-meeting.service.js';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { CoursesModule } from '../courses/courses.module.js';
@@ -14,6 +15,7 @@ import { VideosService } from './videos.service.js';
     VideosService,
     VideoRetentionService,
     LiveSessionsService,
+    ZoomMeetingService,
   ],
 })
 export class VideoModule {}

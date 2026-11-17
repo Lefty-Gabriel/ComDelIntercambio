@@ -27,6 +27,7 @@ interface CourseRow {
   category?: string;
   level?: string;
   created_at?: string;
+  thumbnail_url?: string;
   id: string;
   title: string;
 }
@@ -149,6 +150,7 @@ export class AdminDashboardService {
             type: 'lesson_completed' as const,
             studentId: profile.id,
             studentName: profile.full_name || profile.email,
+            studentAvatar: profile.avatar_url || "",
             courseId: course.id,
             courseTitle: course.title,
             lessonId: lesson.id,
@@ -214,6 +216,7 @@ export class AdminDashboardService {
           title: course.title,
           description: course.description || '',
           docenteId: course.docente_id || null,
+          thumbnail: course.thumbnail_url || "",
           contentType: course.content_type || 'course',
           category: course.category || '',
           level: course.level || '',
@@ -252,7 +255,7 @@ export class AdminDashboardService {
       .schema('courses')
       .from('courses')
       .select(
-        'id, title, description, docente_id, content_type, category, level, created_at',
+        'id, title, description, docente_id, content_type, category, level, created_at, thumbnail_url',
       );
     if (error) throw new BadRequestException(error.message);
     return (data ?? []) as CourseRow[];

@@ -37,6 +37,9 @@ export class VideosController {
     return this.videos.getById(user, id);
   }
 
+  @Get(':id/discussion')
+  discussion(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) { return this.videos.discussion(user, id); }
+
   @Get(':id/playback')
   playback(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.videos.playback(user, id);
